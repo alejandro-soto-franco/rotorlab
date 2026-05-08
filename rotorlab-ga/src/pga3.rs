@@ -95,7 +95,7 @@ pub fn point(x: f32, y: f32, z: f32) -> Point {
     Point(mv)
 }
 
-/// Construct a line through two PGA3 points (`p ∨ q` — the meet, dual of join).
+/// Construct a line through two PGA3 points (`p ∨ q`, the meet, dual of join).
 ///
 /// For v0.0.1 we use the wedge of duals: dualise p and q to grade-1 vectors,
 /// take their wedge (a bivector), and dualise back.

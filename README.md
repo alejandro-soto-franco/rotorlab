@@ -4,7 +4,7 @@ Math-animation engine for explainer videos, written in Rust, built on a const-ge
 
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE-APACHE)
 
-**Status:** v0.0.1 — `rotorlab-ga` (geometric-algebra core) only. The animation engine ships in v0.1.
+**Status:** v0.0.1, `rotorlab-ga` (geometric-algebra core) only. The animation engine ships in v0.1.
 
 ## Crates
 

@@ -1,4 +1,4 @@
-//! The `Scalar` trait — what can be a multivector coefficient.
+//! The `Scalar` trait: what can be a multivector coefficient.
 
 use core::ops::{Add, Div, Mul, Neg, Sub};
 

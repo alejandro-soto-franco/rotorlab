@@ -1,4 +1,4 @@
-//! rotorlab-ga — const-generic geometric algebra core.
+//! rotorlab-ga: const-generic geometric algebra core.
 //!
 //! See the [crate README](../README.md) for an overview.
 
