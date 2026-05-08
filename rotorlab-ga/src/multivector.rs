@@ -98,6 +98,38 @@ impl Multivector<Pga3> {
         }
         out
     }
+
+    /// Outer (wedge) product `self ∧ rhs` in PGA3.
+    ///
+    /// Same as the geometric product but only keeps terms where the input
+    /// blades share no common basis vectors — i.e. `i & j == 0`. This means
+    /// the result blade's grade equals the sum of input grades.
+    pub fn outer_pga3(&self, rhs: &Self) -> Self {
+        let mut out = Self::zero();
+        let table = Pga3::cayley_table();
+        for (i, blade_i) in table.iter().enumerate() {
+            let a = self.get(i);
+            if a == 0.0 {
+                continue;
+            }
+            for (j, &(sign, out_blade)) in blade_i.iter().enumerate() {
+                if (i & j) != 0 {
+                    continue; // shared basis vector → no wedge contribution
+                }
+                let b = rhs.get(j);
+                if b == 0.0 {
+                    continue;
+                }
+                if sign == 0 {
+                    continue;
+                }
+                let cur = out.get(out_blade as usize);
+                let contrib = (sign as f32) * a * b;
+                out.set(out_blade as usize, cur + contrib);
+            }
+        }
+        out
+    }
 }
 
 #[cfg(test)]
@@ -164,6 +196,30 @@ mod tests {
         let result = e0.geometric_pga3(&e0);
         for k in 0..16 {
             assert_eq!(result.get(k), 0.0, "blade {k} should be zero (e0 is null)");
+        }
+    }
+
+    #[test]
+    fn outer_product_e1_wedge_e2() {
+        // e1 ∧ e2 = e12 (grade 1 ∧ grade 1 = grade 2)
+        let mut e1: Multivector<Pga3> = Multivector::zero();
+        e1.set(0b0001, 1.0);
+        let mut e2: Multivector<Pga3> = Multivector::zero();
+        e2.set(0b0010, 1.0);
+        let result = e1.outer_pga3(&e2);
+        assert_eq!(result.get(0b0011), 1.0);
+        // No grade-0 contribution
+        assert_eq!(result.get(0), 0.0);
+    }
+
+    #[test]
+    fn outer_product_e1_wedge_e1_is_zero() {
+        // a ∧ a = 0 always
+        let mut e1: Multivector<Pga3> = Multivector::zero();
+        e1.set(0b0001, 1.0);
+        let result = e1.outer_pga3(&e1);
+        for k in 0..16 {
+            assert_eq!(result.get(k), 0.0);
         }
     }
 }
