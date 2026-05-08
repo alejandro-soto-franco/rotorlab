@@ -18,6 +18,22 @@ Const-generic geometric algebra (GA) core for the [rotorlab](https://github.com/
 
 `Multivector<A>` derives `bytemuck::Pod` via two manual `unsafe impl` blocks, with inline safety arguments. The crate has no other unsafe code. Verified by `cargo miri test` in CI.
 
+## Quick example
+
+```rust
+use rotorlab_ga::pga3::{self, Pga3};
+use rotorlab_ga::Algebra;
+
+// Construct two PGA3 points and the line through them.
+let p = pga3::point(0.0, 0.0, 0.0);
+let q = pga3::point(1.0, 0.0, 0.0);
+let _line = pga3::line_through(p, q);
+
+// Verify PGA3's signature.
+assert_eq!(Pga3::SIGNATURE, (3, 0, 1));
+assert_eq!(Pga3::N_BLADES, 16);
+```
+
 ## License
 
 Apache-2.0.
