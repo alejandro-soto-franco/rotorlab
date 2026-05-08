@@ -54,18 +54,34 @@ impl Scalar for f32 {
     const ZERO: Self = 0.0;
     const ONE: Self = 1.0;
     const NEG_ONE: Self = -1.0;
-    fn sqrt(self) -> Self { f32::sqrt(self) }
-    fn abs(self) -> Self  { f32::abs(self) }
-    fn sin(self) -> Self  { f32::sin(self) }
-    fn cos(self) -> Self  { f32::cos(self) }
+    fn sqrt(self) -> Self {
+        f32::sqrt(self)
+    }
+    fn abs(self) -> Self {
+        f32::abs(self)
+    }
+    fn sin(self) -> Self {
+        f32::sin(self)
+    }
+    fn cos(self) -> Self {
+        f32::cos(self)
+    }
 }
 
 impl Scalar for f64 {
     const ZERO: Self = 0.0;
     const ONE: Self = 1.0;
     const NEG_ONE: Self = -1.0;
-    fn sqrt(self) -> Self { f64::sqrt(self) }
-    fn abs(self) -> Self  { f64::abs(self) }
-    fn sin(self) -> Self  { f64::sin(self) }
-    fn cos(self) -> Self  { f64::cos(self) }
+    fn sqrt(self) -> Self {
+        f64::sqrt(self)
+    }
+    fn abs(self) -> Self {
+        f64::abs(self)
+    }
+    fn sin(self) -> Self {
+        f64::sin(self)
+    }
+    fn cos(self) -> Self {
+        f64::cos(self)
+    }
 }
