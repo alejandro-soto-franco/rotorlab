@@ -114,3 +114,41 @@ pub fn plane_through(p: Point, q: Point, r: Point) -> Plane {
     let plane_dual = pd.outer_pga3(&qd).outer_pga3(&rd);
     Plane(plane_dual.dual())
 }
+
+use crate::motor::{Motor, Rotor, Translator};
+
+/// Build a rotor that rotates by `angle` radians in the plane defined by
+/// the unit bivector `plane`.
+///
+/// Computes `exp(angle/2 * B) = cos(angle/2) + sin(angle/2) * B` for a
+/// normalised Euclidean bivector `B` (i.e. `B^2 = -1`).
+pub fn rotor(plane: Bivector, angle: f32) -> Rotor {
+    let half = angle * 0.5;
+    let mut mv: Multivector<Pga3> = Multivector::zero();
+    mv.set(0, half.cos());
+    let s = half.sin();
+    for k in 0..16 {
+        let v = plane.0.get(k);
+        if v != 0.0 {
+            mv.set(k, mv.get(k) + s * v);
+        }
+    }
+    Rotor(Motor(mv))
+}
+
+/// Build a translator that translates by `distance` along the (null) direction
+/// bivector `direction` (a bivector containing `e0`).
+///
+/// Computes `exp(distance/2 * T) = 1 + distance/2 * T` because `T^2 = 0`.
+pub fn translator(direction: Bivector, distance: f32) -> Translator {
+    let half = distance * 0.5;
+    let mut mv: Multivector<Pga3> = Multivector::zero();
+    mv.set(0, 1.0);
+    for k in 0..16 {
+        let v = direction.0.get(k);
+        if v != 0.0 {
+            mv.set(k, mv.get(k) + half * v);
+        }
+    }
+    Translator(Motor(mv))
+}
