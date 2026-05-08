@@ -1,0 +1,11 @@
+target/
+**/target/
+Cargo.lock.bak
+*.swp
+.DS_Store
+.idea/
+.vscode/
+*.log
+
+# Design docs are local-only context, not part of the published artifact.
+docs/
