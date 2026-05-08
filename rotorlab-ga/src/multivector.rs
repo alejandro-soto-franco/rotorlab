@@ -67,6 +67,34 @@ impl<A: Algebra> Multivector<A> {
     pub fn set(&mut self, blade: usize, value: A::Scalar) {
         self.coeffs.as_mut()[blade] = value;
     }
+
+    /// Reverse (`~self` in many GA notations): negates blades of grade 2 (mod 4)
+    /// and grade 3 (mod 4); keeps grades 0, 1, 4, 5, 8, ... unchanged.
+    pub fn reverse(&self) -> Self {
+        let mut out = *self;
+        for blade in 0..A::N_BLADES {
+            let g = (blade as u64).count_ones();
+            // Reverse sign is (-1)^(g(g-1)/2).
+            let neg = matches!(g % 4, 2 | 3);
+            if neg {
+                let v = out.coeffs.as_mut();
+                v[blade] = -v[blade];
+            }
+        }
+        out
+    }
+
+    /// Grade-`k` projection: zero out all coefficients whose blade has grade ≠ k.
+    pub fn grade(&self, k: u32) -> Self {
+        let mut out = Self::zero();
+        for blade in 0..A::N_BLADES {
+            if (blade as u64).count_ones() == k {
+                let v = self.coeffs.as_ref()[blade];
+                out.coeffs.as_mut()[blade] = v;
+            }
+        }
+        out
+    }
 }
 
 impl Multivector<Pga3> {
@@ -163,6 +191,27 @@ impl Multivector<Pga3> {
                 let contrib = (sign as f32) * a * b;
                 out.set(out_blade as usize, cur + contrib);
             }
+        }
+        out
+    }
+
+    /// Dual: maps a blade `b` to the complementary blade `~b & ((1 << DIM) - 1)`,
+    /// with a sign determined by the dimension and the original blade's grade.
+    pub fn dual(&self) -> Self {
+        let mut out = Self::zero();
+        let mask = (1u64 << Pga3::DIM) - 1; // 0b1111 for PGA3
+        let table = Pga3::cayley_table();
+        for blade in 0..16u64 {
+            let v = self.get(blade as usize);
+            if v == 0.0 {
+                continue;
+            }
+            let dual_blade = (!blade) & mask;
+            // Sign convention: dual(b) gets the sign from b * I.
+            let (sign, _result) = table[blade as usize][mask as usize];
+            let s = sign as f32;
+            let cur = out.get(dual_blade as usize);
+            out.set(dual_blade as usize, cur + s * v);
         }
         out
     }
@@ -279,5 +328,47 @@ mod tests {
         for k in 0..16 {
             assert_eq!(result.get(k), 0.0);
         }
+    }
+
+    #[test]
+    fn reverse_grade_2_negates() {
+        // reverse(e12) = -e12 (grade 2)
+        let mut mv: Multivector<Pga3> = Multivector::zero();
+        mv.set(0b0011, 1.0);
+        let r = mv.reverse();
+        assert_eq!(r.get(0b0011), -1.0);
+    }
+
+    #[test]
+    fn reverse_grade_1_unchanged() {
+        // reverse(e1) = e1 (grade 1)
+        let mut mv: Multivector<Pga3> = Multivector::zero();
+        mv.set(0b0001, 1.0);
+        let r = mv.reverse();
+        assert_eq!(r.get(0b0001), 1.0);
+    }
+
+    #[test]
+    fn grade_projection_isolates_grade() {
+        // mv = 1 + e1 + e12; project grade 1 → only e1 remains
+        let mut mv: Multivector<Pga3> = Multivector::zero();
+        mv.set(0, 1.0);
+        mv.set(0b0001, 2.0);
+        mv.set(0b0011, 3.0);
+        let g1 = mv.grade(1);
+        assert_eq!(g1.get(0), 0.0);
+        assert_eq!(g1.get(0b0001), 2.0);
+        assert_eq!(g1.get(0b0011), 0.0);
+    }
+
+    #[test]
+    fn dual_swaps_grade_with_complement() {
+        // dual(1) = pseudoscalar I (or ±I depending on convention)
+        let mut s: Multivector<Pga3> = Multivector::zero();
+        s.set(0, 1.0);
+        let d = s.dual();
+        // The dual is at the pseudoscalar blade 0b1111.
+        // Sign depends on convention — assert magnitude only.
+        assert_eq!(d.get(0b1111).abs(), 1.0);
     }
 }
