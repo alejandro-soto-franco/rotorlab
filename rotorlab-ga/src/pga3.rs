@@ -28,3 +28,27 @@ impl Algebra for Pga3 {
     type Scalar = f32;
     const METRIC: &'static [i8] = &[1, 1, 1, 0];
 }
+
+use crate::blade::{blade_product_blade, blade_product_sign};
+
+/// The PGA3 Cayley table: `[i][j] = (sign, result_blade)` for `e_i * e_j`,
+/// where `e_k` denotes the basis blade with bitmask `k`.
+///
+/// Materialized at compile time from the const-fn `blade_product_sign`.
+pub const PGA3_CAYLEY: [[(i8, u64); 16]; 16] = pga3_cayley_table();
+
+const fn pga3_cayley_table() -> [[(i8, u64); 16]; 16] {
+    let mut table = [[(0i8, 0u64); 16]; 16];
+    let mut i = 0usize;
+    while i < 16 {
+        let mut j = 0usize;
+        while j < 16 {
+            let sign = blade_product_sign(i as u64, j as u64, Pga3::METRIC);
+            let blade = blade_product_blade(i as u64, j as u64);
+            table[i][j] = (sign, blade);
+            j += 1;
+        }
+        i += 1;
+    }
+    table
+}
