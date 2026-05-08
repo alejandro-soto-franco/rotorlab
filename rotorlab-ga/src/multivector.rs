@@ -95,6 +95,50 @@ impl<A: Algebra> Multivector<A> {
         }
         out
     }
+
+    /// Element-wise addition.
+    pub fn add(&self, rhs: &Self) -> Self {
+        let mut out = Self::zero();
+        for ((dst, &a), &b) in out
+            .coeffs
+            .as_mut()
+            .iter_mut()
+            .zip(self.coeffs.as_ref().iter())
+            .zip(rhs.coeffs.as_ref().iter())
+        {
+            *dst = a + b;
+        }
+        out
+    }
+
+    /// Element-wise subtraction.
+    pub fn sub(&self, rhs: &Self) -> Self {
+        let mut out = Self::zero();
+        for ((dst, &a), &b) in out
+            .coeffs
+            .as_mut()
+            .iter_mut()
+            .zip(self.coeffs.as_ref().iter())
+            .zip(rhs.coeffs.as_ref().iter())
+        {
+            *dst = a - b;
+        }
+        out
+    }
+
+    /// Multiply every coefficient by a scalar.
+    pub fn scale(&self, s: A::Scalar) -> Self {
+        let mut out = Self::zero();
+        for (dst, &a) in out
+            .coeffs
+            .as_mut()
+            .iter_mut()
+            .zip(self.coeffs.as_ref().iter())
+        {
+            *dst = a * s;
+        }
+        out
+    }
 }
 
 impl Multivector<Pga3> {
@@ -214,6 +258,13 @@ impl Multivector<Pga3> {
             out.set(dual_blade as usize, cur + s * v);
         }
         out
+    }
+
+    /// Squared norm: the grade-0 part of `self * ~self`.
+    pub fn norm_sq(&self) -> f32 {
+        let r = self.reverse();
+        let p = self.geometric_pga3(&r);
+        p.get(0)
     }
 }
 
@@ -370,5 +421,33 @@ mod tests {
         // The dual is at the pseudoscalar blade 0b1111.
         // Sign depends on convention — assert magnitude only.
         assert_eq!(d.get(0b1111).abs(), 1.0);
+    }
+
+    #[test]
+    fn add_two_multivectors() {
+        let mut a: Multivector<Pga3> = Multivector::zero();
+        a.set(0b0001, 1.0);
+        let mut b: Multivector<Pga3> = Multivector::zero();
+        b.set(0b0001, 2.0);
+        let c = a.add(&b);
+        assert_eq!(c.get(0b0001), 3.0);
+    }
+
+    #[test]
+    fn scale_multivector() {
+        let mut a: Multivector<Pga3> = Multivector::zero();
+        a.set(0b0001, 1.0);
+        a.set(0b0010, 2.0);
+        let s = a.scale(3.0);
+        assert_eq!(s.get(0b0001), 3.0);
+        assert_eq!(s.get(0b0010), 6.0);
+    }
+
+    #[test]
+    fn norm_sq_scalar() {
+        let mut e1: Multivector<Pga3> = Multivector::zero();
+        e1.set(0b0001, 3.0);
+        // norm_sq(e1) = e1 · e1 = 9.0 (since e1^2 = 1 and it's grade-1)
+        assert_eq!(e1.norm_sq(), 9.0);
     }
 }
