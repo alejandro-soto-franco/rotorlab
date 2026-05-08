@@ -130,6 +130,42 @@ impl Multivector<Pga3> {
         }
         out
     }
+
+    /// Inner product (left contraction) `self · rhs` in PGA3.
+    ///
+    /// Defined as the grade-`|r - s|` part of the geometric product when
+    /// `self` is grade `r` and `rhs` is grade `s`. Implemented blade-wise:
+    /// for each pair `(i, j)`, keep the contribution iff
+    /// `popcount(out_blade) == |popcount(i) - popcount(j)|`.
+    pub fn inner_pga3(&self, rhs: &Self) -> Self {
+        let mut out = Self::zero();
+        let table = Pga3::cayley_table();
+        for (i, blade_i) in table.iter().enumerate() {
+            let a = self.get(i);
+            if a == 0.0 {
+                continue;
+            }
+            let gi = i.count_ones() as i32;
+            for (j, &(sign, out_blade)) in blade_i.iter().enumerate() {
+                let b = rhs.get(j);
+                if b == 0.0 {
+                    continue;
+                }
+                let gj = j.count_ones() as i32;
+                let target_grade = (gi - gj).unsigned_abs();
+                if sign == 0 {
+                    continue;
+                }
+                if out_blade.count_ones() != target_grade {
+                    continue;
+                }
+                let cur = out.get(out_blade as usize);
+                let contrib = (sign as f32) * a * b;
+                out.set(out_blade as usize, cur + contrib);
+            }
+        }
+        out
+    }
 }
 
 #[cfg(test)]
@@ -218,6 +254,28 @@ mod tests {
         let mut e1: Multivector<Pga3> = Multivector::zero();
         e1.set(0b0001, 1.0);
         let result = e1.outer_pga3(&e1);
+        for k in 0..16 {
+            assert_eq!(result.get(k), 0.0);
+        }
+    }
+
+    #[test]
+    fn inner_product_e1_dot_e1() {
+        // e1 · e1 = 1 (grade 1 · grade 1 → grade 0)
+        let mut e1: Multivector<Pga3> = Multivector::zero();
+        e1.set(0b0001, 1.0);
+        let result = e1.inner_pga3(&e1);
+        assert_eq!(result.get(0), 1.0);
+    }
+
+    #[test]
+    fn inner_product_e1_dot_e2_is_zero() {
+        // e1 · e2 = 0 (orthogonal)
+        let mut e1: Multivector<Pga3> = Multivector::zero();
+        e1.set(0b0001, 1.0);
+        let mut e2: Multivector<Pga3> = Multivector::zero();
+        e2.set(0b0010, 1.0);
+        let result = e1.inner_pga3(&e2);
         for k in 0..16 {
             assert_eq!(result.get(k), 0.0);
         }
