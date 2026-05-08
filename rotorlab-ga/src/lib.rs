@@ -15,4 +15,4 @@ pub mod scalar;
 
 // pub use algebra::Algebra;
 // pub use multivector::Multivector;
-// pub use scalar::Scalar;
+pub use scalar::Scalar;
