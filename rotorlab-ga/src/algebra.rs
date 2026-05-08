@@ -1,4 +1,4 @@
-//! The `Algebra` trait — defines a Clifford / geometric algebra by signature.
+//! The `Algebra` trait: defines a Clifford / geometric algebra by signature.
 
 use crate::scalar::Scalar;
 
@@ -10,7 +10,7 @@ use crate::scalar::Scalar;
 /// Implementations are unit structs: one per algebra. v0.0.1 ships [`crate::pga3::Pga3`]
 /// (signature `(3, 0, 1)`). See that type for a worked example.
 pub trait Algebra: Copy + Default + 'static {
-    /// `(P, Q, R)` — counts of positive, negative, null basis vectors.
+    /// `(P, Q, R)`: counts of positive, negative, null basis vectors.
     const SIGNATURE: (u32, u32, u32);
     /// Total ambient dimension `P + Q + R`.
     const DIM: u32;

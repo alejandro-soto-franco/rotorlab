@@ -174,7 +174,7 @@ impl Multivector<Pga3> {
     /// Outer (wedge) product `self ∧ rhs` in PGA3.
     ///
     /// Same as the geometric product but only keeps terms where the input
-    /// blades share no common basis vectors — i.e. `i & j == 0`. This means
+    /// blades share no common basis vectors (i.e. `i & j == 0`). This means
     /// the result blade's grade equals the sum of input grades.
     pub fn outer_pga3(&self, rhs: &Self) -> Self {
         let mut out = Self::zero();
@@ -419,7 +419,7 @@ mod tests {
         s.set(0, 1.0);
         let d = s.dual();
         // The dual is at the pseudoscalar blade 0b1111.
-        // Sign depends on convention — assert magnitude only.
+        // Sign depends on convention; assert magnitude only.
         assert_eq!(d.get(0b1111).abs(), 1.0);
     }
 
