@@ -1,0 +1,10 @@
+rotorlab
+Copyright 2026 Alejandro Soto Franco
+
+Licensed under the Apache License, Version 2.0.
+
+This product includes geometric-algebra correctness fixtures derived from
+ganim (https://github.com/sudgy/ganim) by sudgy. ganim is licensed under
+GPL-3.0; only its public ABI behavior (numeric outputs of `sga.hpp` for
+specified inputs) is consumed, via a cross-language test harness — no
+ganim source code is incorporated into the rotorlab binary or library.
