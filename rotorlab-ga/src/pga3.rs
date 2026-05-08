@@ -52,3 +52,10 @@ const fn pga3_cayley_table() -> [[(i8, u64); 16]; 16] {
     }
     table
 }
+
+impl Pga3 {
+    /// Reference to the compile-time-evaluated Cayley table.
+    pub const fn cayley_table() -> &'static [[(i8, u64); 16]; 16] {
+        &PGA3_CAYLEY
+    }
+}

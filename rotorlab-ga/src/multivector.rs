@@ -1,6 +1,7 @@
 //! The universal `Multivector<A: Algebra>` type.
 
 use crate::algebra::Algebra;
+use crate::pga3::Pga3;
 use core::marker::PhantomData;
 
 /// A multivector in algebra `A`.
@@ -68,6 +69,37 @@ impl<A: Algebra> Multivector<A> {
     }
 }
 
+impl Multivector<Pga3> {
+    /// Geometric product `self * rhs` in PGA3.
+    ///
+    /// Reads from the compile-time `PGA3_CAYLEY` table: for each blade pair
+    /// `(i, j)` with non-zero coefficients, looks up `(sign, out_blade)` and
+    /// accumulates `sign * a_i * b_j` into the output blade.
+    pub fn geometric_pga3(&self, rhs: &Self) -> Self {
+        let mut out = Self::zero();
+        let table = Pga3::cayley_table();
+        for (i, blade_i) in table.iter().enumerate() {
+            let a = self.get(i);
+            if a == 0.0 {
+                continue;
+            }
+            for (j, &(sign, out_blade)) in blade_i.iter().enumerate() {
+                let b = rhs.get(j);
+                if b == 0.0 {
+                    continue;
+                }
+                if sign == 0 {
+                    continue;
+                }
+                let cur = out.get(out_blade as usize);
+                let contrib = (sign as f32) * a * b;
+                out.set(out_blade as usize, cur + contrib);
+            }
+        }
+        out
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -99,5 +131,39 @@ mod tests {
         let mvs: [Multivector<Pga3>; 4] = [Multivector::default(); 4];
         let bytes: &[u8] = bytemuck::cast_slice(&mvs);
         assert_eq!(bytes.len(), 4 * 16 * 4);
+    }
+
+    #[test]
+    fn geometric_product_e1_times_e1() {
+        // e1 * e1 = +1 (scalar)
+        let mut e1: Multivector<Pga3> = Multivector::zero();
+        e1.set(0b0001, 1.0);
+        let result = e1.geometric_pga3(&e1);
+        assert_eq!(result.get(0), 1.0);
+        for k in 1..16 {
+            assert_eq!(result.get(k), 0.0, "blade {k} should be zero");
+        }
+    }
+
+    #[test]
+    fn geometric_product_e1_times_e2() {
+        // e1 * e2 = e12 (bitmask 0b0011)
+        let mut e1: Multivector<Pga3> = Multivector::zero();
+        e1.set(0b0001, 1.0);
+        let mut e2: Multivector<Pga3> = Multivector::zero();
+        e2.set(0b0010, 1.0);
+        let result = e1.geometric_pga3(&e2);
+        assert_eq!(result.get(0b0011), 1.0);
+    }
+
+    #[test]
+    fn geometric_product_e0_times_e0_is_zero() {
+        // e0 is null in PGA3
+        let mut e0: Multivector<Pga3> = Multivector::zero();
+        e0.set(0b1000, 1.0);
+        let result = e0.geometric_pga3(&e0);
+        for k in 0..16 {
+            assert_eq!(result.get(k), 0.0, "blade {k} should be zero (e0 is null)");
+        }
     }
 }
