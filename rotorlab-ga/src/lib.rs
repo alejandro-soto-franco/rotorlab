@@ -14,5 +14,5 @@ pub mod pga3;
 pub mod scalar;
 
 pub use algebra::Algebra;
-// pub use multivector::Multivector;
+pub use multivector::Multivector;
 pub use scalar::Scalar;
