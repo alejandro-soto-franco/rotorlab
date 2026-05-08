@@ -59,3 +59,58 @@ impl Pga3 {
         &PGA3_CAYLEY
     }
 }
+
+use crate::multivector::Multivector;
+
+/// Bivector (grade-2 element of PGA3).
+#[derive(Copy, Clone, Default)]
+pub struct Bivector(pub Multivector<Pga3>);
+
+/// Point (grade-3 trivector in PGA3).
+#[derive(Copy, Clone, Default)]
+pub struct Point(pub Multivector<Pga3>);
+
+/// Line (grade-2 bivector in PGA3).
+#[derive(Copy, Clone, Default)]
+pub struct Line(pub Multivector<Pga3>);
+
+/// Plane (grade-1 vector in PGA3).
+#[derive(Copy, Clone, Default)]
+pub struct Plane(pub Multivector<Pga3>);
+
+/// Construct a Euclidean point at `(x, y, z)` in PGA3.
+///
+/// In the e0-as-null convention, a normalized point is the trivector
+/// `e_123 + x * e_023 + y * e_013 + z * e_012`. Bitmask encoding:
+///   - `e_123 = 0b0111` (bits e1,e2,e3)
+///   - `e_023 = 0b1110` (bits e2,e3,e0)
+///   - `e_013 = 0b1101` (bits e1,e3,e0)
+///   - `e_012 = 0b1011` (bits e1,e2,e0)
+pub fn point(x: f32, y: f32, z: f32) -> Point {
+    let mut mv: Multivector<Pga3> = Multivector::zero();
+    mv.set(0b0111, 1.0); // e_123
+    mv.set(0b1110, x); // x * e_023
+    mv.set(0b1101, y); // y * e_013
+    mv.set(0b1011, z); // z * e_012
+    Point(mv)
+}
+
+/// Construct a line through two PGA3 points (`p ∨ q` — the meet, dual of join).
+///
+/// For v0.0.1 we use the wedge of duals: dualise p and q to grade-1 vectors,
+/// take their wedge (a bivector), and dualise back.
+pub fn line_through(p: Point, q: Point) -> Line {
+    let pd = p.0.dual();
+    let qd = q.0.dual();
+    let l_dual = pd.outer_pga3(&qd);
+    Line(l_dual.dual())
+}
+
+/// Construct a plane through three PGA3 points (`p ∨ q ∨ r`).
+pub fn plane_through(p: Point, q: Point, r: Point) -> Plane {
+    let pd = p.0.dual();
+    let qd = q.0.dual();
+    let rd = r.0.dual();
+    let plane_dual = pd.outer_pga3(&qd).outer_pga3(&rd);
+    Plane(plane_dual.dual())
+}

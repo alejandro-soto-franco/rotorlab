@@ -46,3 +46,23 @@ fn table_dimensions() {
     assert_eq!(PGA3_CAYLEY.len(), 16);
     assert_eq!(PGA3_CAYLEY[0].len(), 16);
 }
+
+use rotorlab_ga::pga3;
+
+#[test]
+fn point_at_origin() {
+    let p = pga3::point(0.0, 0.0, 0.0);
+    // The e_123 coefficient should be 1 (the projective denominator).
+    assert_eq!(p.0.get(0b0111), 1.0);
+    // No Euclidean offset.
+    assert_eq!(p.0.get(0b1110), 0.0);
+    assert_eq!(p.0.get(0b1101), 0.0);
+    assert_eq!(p.0.get(0b1011), 0.0);
+}
+
+#[test]
+fn point_at_unit_x() {
+    let p = pga3::point(1.0, 0.0, 0.0);
+    assert_eq!(p.0.get(0b0111), 1.0);
+    assert_eq!(p.0.get(0b1110), 1.0);
+}
