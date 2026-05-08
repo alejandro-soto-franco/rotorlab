@@ -18,7 +18,7 @@ use core::marker::PhantomData;
 /// assert_eq!(mv.coeffs[0], 0.0);
 /// ```
 #[repr(C)]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct Multivector<A: Algebra> {
     /// Per-blade coefficients, indexed by blade bitmask.
     pub coeffs: A::Storage,
