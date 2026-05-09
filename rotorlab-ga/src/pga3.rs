@@ -2,7 +2,12 @@
 //!
 //! Basis encoding (bitmask): bit 0 = `e1`, bit 1 = `e2`, bit 2 = `e3`, bit 3 = `e0`.
 //! `e1`, `e2`, `e3` square to `+1`; `e0` (null) squares to `0`.
-//! The pseudoscalar `I = e0 ∧ e1 ∧ e2 ∧ e3` has bitmask `0b1111`.
+//!
+//! Bitmask `0b1111` represents the canonical-bit-order pseudoscalar
+//! `I = e1 ∧ e2 ∧ e3 ∧ e0`. This differs from `e0 ∧ e1 ∧ e2 ∧ e3` (the
+//! ordering common in textbooks) by `(-1)^3 = -1` from moving `e0` past three
+//! basis vectors. All sign conventions in this crate follow the bit-ascending
+//! pseudoscalar consistently.
 
 use crate::algebra::Algebra;
 
@@ -95,24 +100,35 @@ pub fn point(x: f32, y: f32, z: f32) -> Point {
     Point(mv)
 }
 
-/// Construct a line through two PGA3 points (`p ∨ q`, the meet, dual of join).
+/// Construct the line through two PGA3 points (`p ∨ q`).
 ///
-/// For v0.0.1 we use the wedge of duals: dualise p and q to grade-1 vectors,
-/// take their wedge (a bivector), and dualise back.
+/// Implements the regressive product `a ∨ b = J⁻¹(J(a) ∧ J(b))` using the
+/// Poincaré dual `J` ([`Multivector::dual`]) and its inverse, the left
+/// complement ([`Multivector::undual`]). The wedge of duals computes the
+/// meet in the dual algebra, then `undual` carries the result back.
+///
+/// Even though the intermediate result is grade 2 (where `J` and `J⁻¹`
+/// happen to coincide), we use `undual` for consistency with [`plane_through`]
+/// and to make the algebraic structure explicit.
 pub fn line_through(p: Point, q: Point) -> Line {
     let pd = p.0.dual();
     let qd = q.0.dual();
     let l_dual = pd.outer_pga3(&qd);
-    Line(l_dual.dual())
+    Line(l_dual.undual())
 }
 
-/// Construct a plane through three PGA3 points (`p ∨ q ∨ r`).
+/// Construct the plane through three PGA3 points (`p ∨ q ∨ r`).
+///
+/// Same regressive-product pattern as [`line_through`]: dualize, wedge in
+/// the dual algebra, undualize. The intermediate grade is 3, on which
+/// `dual` and `undual` differ by a sign, so the final `undual` is required
+/// for the correct orientation.
 pub fn plane_through(p: Point, q: Point, r: Point) -> Plane {
     let pd = p.0.dual();
     let qd = q.0.dual();
     let rd = r.0.dual();
     let plane_dual = pd.outer_pga3(&qd).outer_pga3(&rd);
-    Plane(plane_dual.dual())
+    Plane(plane_dual.undual())
 }
 
 use crate::motor::{Motor, Rotor, Translator};

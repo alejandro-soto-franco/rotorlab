@@ -239,23 +239,62 @@ impl Multivector<Pga3> {
         out
     }
 
-    /// Dual: maps a blade `b` to the complementary blade `~b & ((1 << DIM) - 1)`,
-    /// with a sign determined by the dimension and the original blade's grade.
+    /// Right complement (Poincaré dual / Lengyel `J`-map).
+    ///
+    /// For each basis blade `b`, sends the coefficient at `b` to the
+    /// complementary blade `~b & 0b1111` with the unique sign making
+    /// `b ∧ J(b) = +I`.
+    ///
+    /// # Why this is *not* `b · I` in PGA
+    ///
+    /// In PGA3 the metric is degenerate (`e0² = 0`), so `I² = 0` and the
+    /// metric-Hodge dual `b · I⁻¹` is undefined. The geometric-product
+    /// approach `b * I` collapses every blade containing `e0` to zero, which
+    /// would annihilate three of the four components of any point. The right
+    /// complement is purely combinatorial — sign comes from bit-permutation
+    /// parity alone — and is well-defined regardless of metric signature.
+    ///
+    /// # Properties
+    ///
+    /// * Maps grade `k` to grade `4 - k`.
+    /// * `dual(dual(x))` equals `(-1)^(k(4-k)) · x` on grade-`k` components.
+    ///   Specifically `+x` on grades 0/2/4 and `-x` on grades 1/3, so it is
+    ///   *not* a strict involution. Use [`undual`](Self::undual) for the
+    ///   inverse.
     pub fn dual(&self) -> Self {
         let mut out = Self::zero();
-        let mask = (1u64 << Pga3::DIM) - 1; // 0b1111 for PGA3
-        let table = Pga3::cayley_table();
-        for blade in 0..16u64 {
-            let v = self.get(blade as usize);
+        let full = (1u64 << Pga3::DIM) - 1; // 0b1111 for PGA3
+        for blade in 0..Pga3::N_BLADES {
+            let v = self.get(blade);
             if v == 0.0 {
                 continue;
             }
-            let dual_blade = (!blade) & mask;
-            // Sign convention: dual(b) gets the sign from b * I.
-            let (sign, _result) = table[blade as usize][mask as usize];
-            let s = sign as f32;
-            let cur = out.get(dual_blade as usize);
-            out.set(dual_blade as usize, cur + s * v);
+            let comp = ((!(blade as u64)) & full) as usize;
+            let s = crate::blade::right_complement_sign(blade as u64, Pga3::DIM) as f32;
+            let cur = out.get(comp);
+            out.set(comp, cur + s * v);
+        }
+        out
+    }
+
+    /// Left complement, the formal inverse of [`dual`](Self::dual).
+    ///
+    /// Defined by `L(b) ∧ b = +I`. Satisfies `dual().undual() == self` and
+    /// `undual().dual() == self` exactly. On grade `k` it equals
+    /// `(-1)^(k(4-k)) · dual()`, so it agrees with `dual` on grades 0/2/4
+    /// and flips sign on grades 1/3.
+    pub fn undual(&self) -> Self {
+        let mut out = Self::zero();
+        let full = (1u64 << Pga3::DIM) - 1;
+        for blade in 0..Pga3::N_BLADES {
+            let v = self.get(blade);
+            if v == 0.0 {
+                continue;
+            }
+            let comp = ((!(blade as u64)) & full) as usize;
+            let s = crate::blade::left_complement_sign(blade as u64, Pga3::DIM) as f32;
+            let cur = out.get(comp);
+            out.set(comp, cur + s * v);
         }
         out
     }
@@ -413,14 +452,208 @@ mod tests {
     }
 
     #[test]
-    fn dual_swaps_grade_with_complement() {
-        // dual(1) = pseudoscalar I (or ±I depending on convention)
+    fn dual_of_scalar_is_pseudoscalar() {
+        // J(1) = +I exactly: no swaps needed because the scalar has no factors.
         let mut s: Multivector<Pga3> = Multivector::zero();
         s.set(0, 1.0);
         let d = s.dual();
-        // The dual is at the pseudoscalar blade 0b1111.
-        // Sign depends on convention; assert magnitude only.
-        assert_eq!(d.get(0b1111).abs(), 1.0);
+        assert_eq!(d.get(0b1111), 1.0);
+        for k in 0..16 {
+            if k != 0b1111 {
+                assert_eq!(d.get(k), 0.0, "blade {k} should be zero");
+            }
+        }
+    }
+
+    #[test]
+    fn dual_of_pseudoscalar_is_scalar() {
+        // J(I) = +1.
+        let mut p: Multivector<Pga3> = Multivector::zero();
+        p.set(0b1111, 1.0);
+        let d = p.dual();
+        assert_eq!(d.get(0), 1.0);
+        for k in 1..16 {
+            assert_eq!(d.get(k), 0.0);
+        }
+    }
+
+    #[test]
+    fn dual_of_e0_is_nonzero_grade_3() {
+        // The old metric-based dual returned zero here (regression guard).
+        // The right complement gives J(e0) = -e1∧e2∧e3 (bitmask 0b0111).
+        let mut e0: Multivector<Pga3> = Multivector::zero();
+        e0.set(0b1000, 1.0);
+        let d = e0.dual();
+        assert_eq!(d.get(0b0111), -1.0, "J(e0) must be -e1∧e2∧e3");
+        for k in 0..16 {
+            if k != 0b0111 {
+                assert_eq!(d.get(k), 0.0);
+            }
+        }
+    }
+
+    #[test]
+    fn dual_of_every_basis_blade_is_a_basis_blade_with_unit_coefficient() {
+        // Regression guard: confirms no basis blade is silently zeroed.
+        for blade in 0..16 {
+            let mut mv: Multivector<Pga3> = Multivector::zero();
+            mv.set(blade, 1.0);
+            let d = mv.dual();
+            let comp = (!blade) & 0b1111;
+            let coeff = d.get(comp);
+            assert!(
+                coeff == 1.0 || coeff == -1.0,
+                "dual of basis blade {blade:04b} produced coeff {coeff} at {comp:04b}",
+            );
+            for k in 0..16 {
+                if k != comp {
+                    assert_eq!(d.get(k), 0.0, "dual of {blade:04b} leaked into {k:04b}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn dual_swaps_grade_to_complement_grade() {
+        // For each input grade k, dual sends to grade (4 - k).
+        for blade in 0..16 {
+            let mut mv: Multivector<Pga3> = Multivector::zero();
+            mv.set(blade, 1.0);
+            let d = mv.dual();
+            let in_grade = (blade as u64).count_ones();
+            let expected_out_grade = 4 - in_grade;
+            for k in 0..16 {
+                if d.get(k) != 0.0 {
+                    assert_eq!(
+                        (k as u64).count_ones(),
+                        expected_out_grade,
+                        "dual of grade-{in_grade} blade leaked to grade {}",
+                        (k as u64).count_ones()
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn undual_inverts_dual_on_every_basis_blade() {
+        // The strict round-trip: undual ∘ dual = identity, no sign flip.
+        for blade in 0..16 {
+            let mut mv: Multivector<Pga3> = Multivector::zero();
+            mv.set(blade, 1.0);
+            let round = mv.dual().undual();
+            for k in 0..16 {
+                let got = round.get(k);
+                let want = if k == blade { 1.0 } else { 0.0 };
+                assert_eq!(
+                    got, want,
+                    "undual(dual(blade {blade:04b})) wrong at {k:04b}: got {got}, want {want}",
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn dual_inverts_undual_on_every_basis_blade() {
+        for blade in 0..16 {
+            let mut mv: Multivector<Pga3> = Multivector::zero();
+            mv.set(blade, 1.0);
+            let round = mv.undual().dual();
+            for k in 0..16 {
+                let got = round.get(k);
+                let want = if k == blade { 1.0 } else { 0.0 };
+                assert_eq!(got, want);
+            }
+        }
+    }
+
+    #[test]
+    fn dual_dual_signs_match_grade_formula() {
+        // J²|_grade k = (-1)^(k(n-k)) for n = 4: +1 on grades 0/2/4, −1 on 1/3.
+        for blade in 0..16 {
+            let mut mv: Multivector<Pga3> = Multivector::zero();
+            mv.set(blade, 1.0);
+            let twice = mv.dual().dual();
+            let k = (blade as u64).count_ones();
+            let expected_sign = if (k * (4 - k)) % 2 == 0 { 1.0 } else { -1.0 };
+            assert_eq!(twice.get(blade), expected_sign);
+        }
+    }
+
+    #[test]
+    fn dual_undual_agree_on_even_grades() {
+        // On grades 0, 2, 4 the right and left complements coincide.
+        for blade in 0..16 {
+            let k = (blade as u64).count_ones();
+            if k % 2 != 0 {
+                continue;
+            }
+            let mut mv: Multivector<Pga3> = Multivector::zero();
+            mv.set(blade, 1.0);
+            let d = mv.dual();
+            let u = mv.undual();
+            for k_out in 0..16 {
+                assert_eq!(
+                    d.get(k_out),
+                    u.get(k_out),
+                    "blade {blade:04b}, out {k_out:04b}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn dual_undual_differ_by_sign_on_odd_grades() {
+        // On grades 1 and 3, undual = −dual.
+        for blade in 0..16 {
+            let k = (blade as u64).count_ones();
+            if k % 2 == 0 {
+                continue;
+            }
+            let mut mv: Multivector<Pga3> = Multivector::zero();
+            mv.set(blade, 1.0);
+            let d = mv.dual();
+            let u = mv.undual();
+            for k_out in 0..16 {
+                assert_eq!(
+                    d.get(k_out),
+                    -u.get(k_out),
+                    "blade {blade:04b}, out {k_out:04b}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn dual_is_linear() {
+        // dual(αa + βb) = α dual(a) + β dual(b).
+        let mut a: Multivector<Pga3> = Multivector::zero();
+        a.set(0b0001, 1.0);
+        a.set(0b1000, 2.0);
+        let mut b: Multivector<Pga3> = Multivector::zero();
+        b.set(0b0010, -1.0);
+        b.set(0b1001, 3.0);
+        let combined = a.scale(2.0).add(&b.scale(5.0));
+        let direct = combined.dual();
+        let composed = a.dual().scale(2.0).add(&b.dual().scale(5.0));
+        for k in 0..16 {
+            assert_eq!(direct.get(k), composed.get(k));
+        }
+    }
+
+    #[test]
+    fn dual_is_metric_independent_for_full_multivector() {
+        // A multivector with every blade populated round-trips exactly under
+        // undual ∘ dual. This was impossible with the old `b * I` definition
+        // because eight of the sixteen blades contain `e0`.
+        let mut mv: Multivector<Pga3> = Multivector::zero();
+        for k in 0..16 {
+            mv.set(k, (k as f32) + 1.0);
+        }
+        let round = mv.dual().undual();
+        for k in 0..16 {
+            assert_eq!(round.get(k), (k as f32) + 1.0, "blade {k:04b}");
+        }
     }
 
     #[test]

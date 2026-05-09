@@ -71,3 +71,94 @@ pub const fn blade_product_sign(blade1: u64, blade2: u64, metric: &[i8]) -> i8 {
 pub const fn blade_product_blade(blade1: u64, blade2: u64) -> u64 {
     blade1 ^ blade2
 }
+
+/// Sign of the right complement (Poincaré dual / Lengyel `J`-map) of a basis
+/// blade in a `dim`-dimensional algebra.
+///
+/// The right complement `J(b)` is the unique scalar multiple of the bit-
+/// complement blade for which `b ∧ J(b) = +I` where `I` is the canonical-bit-
+/// order pseudoscalar (bitmask `(1 << dim) - 1`). Returns the sign `ε ∈ {±1}`
+/// such that `J(b) = ε · complement(b)`.
+///
+/// # Why this is metric-independent
+///
+/// `b` and `complement(b)` share no basis vectors, so the wedge `b ∧ comp` has
+/// no contractions; the sign is purely the bit-permutation parity needed to
+/// sort the concatenated bit list into canonical (ascending) order. This is
+/// what makes the right complement well-defined in PGA, where `e0² = 0` makes
+/// the metric pseudoscalar product `b · I` degenerate.
+///
+/// # Example
+///
+/// ```
+/// use rotorlab_ga::blade::right_complement_sign;
+/// // J(1) = +I (no swaps needed).
+/// assert_eq!(right_complement_sign(0b0000, 4), 1);
+/// // J(I) = +1 (no factors to commute).
+/// assert_eq!(right_complement_sign(0b1111, 4), 1);
+/// // J(e1) = +e2∧e3∧e0 (parity 0).
+/// assert_eq!(right_complement_sign(0b0001, 4), 1);
+/// // J(e0) = -e1∧e2∧e3 (e0 must hop past three vectors to reach the front).
+/// assert_eq!(right_complement_sign(0b1000, 4), -1);
+/// ```
+pub const fn right_complement_sign(blade: u64, dim: u32) -> i8 {
+    let full: u64 = if dim >= 64 {
+        u64::MAX
+    } else {
+        (1u64 << dim) - 1
+    };
+    let comp = (!blade) & full;
+    // Parity of the swaps required to interleave the bits of `blade` (in
+    // ascending bit order) with the bits of `comp` (in ascending bit order)
+    // to produce the fully-sorted bit list. For each bit p in `blade`, count
+    // bits of `comp` strictly below p (each is one transposition).
+    let mut sign = false;
+    let mut mask: u64 = 0;
+    let mut b1 = blade;
+    while b1 != 0 {
+        let power1 = 1u64 << (63 - b1.leading_zeros());
+        b1 ^= power1;
+        mask ^= power1.wrapping_sub(1);
+    }
+    let parity = (mask & comp).count_ones() % 2 == 1;
+    sign ^= parity;
+    if sign { -1 } else { 1 }
+}
+
+/// Sign of the left complement (`L`-map, the inverse of the right complement)
+/// of a basis blade.
+///
+/// Defined dually by `L(b) ∧ b = +I`. The relation to the right complement is
+/// `L = (-1)^(k(n-k)) · J` on grade-`k` blades, so `L(J(b)) = J(L(b)) = b`.
+///
+/// # Example
+///
+/// ```
+/// use rotorlab_ga::blade::{left_complement_sign, right_complement_sign};
+/// // On even grades (0, 2, 4) of n=4, L = J.
+/// assert_eq!(left_complement_sign(0b0000, 4), right_complement_sign(0b0000, 4));
+/// assert_eq!(left_complement_sign(0b0011, 4), right_complement_sign(0b0011, 4));
+/// assert_eq!(left_complement_sign(0b1111, 4), right_complement_sign(0b1111, 4));
+/// // On odd grades (1, 3) of n=4, L = -J.
+/// assert_eq!(left_complement_sign(0b0001, 4), -right_complement_sign(0b0001, 4));
+/// assert_eq!(left_complement_sign(0b0111, 4), -right_complement_sign(0b0111, 4));
+/// ```
+pub const fn left_complement_sign(blade: u64, dim: u32) -> i8 {
+    let full: u64 = if dim >= 64 {
+        u64::MAX
+    } else {
+        (1u64 << dim) - 1
+    };
+    let comp = (!blade) & full;
+    let mut sign = false;
+    let mut mask: u64 = 0;
+    let mut b1 = comp;
+    while b1 != 0 {
+        let power1 = 1u64 << (63 - b1.leading_zeros());
+        b1 ^= power1;
+        mask ^= power1.wrapping_sub(1);
+    }
+    let parity = (mask & blade).count_ones() % 2 == 1;
+    sign ^= parity;
+    if sign { -1 } else { 1 }
+}
