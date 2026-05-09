@@ -4,8 +4,10 @@
 
 use ash::vk;
 
+pub mod point;
 pub mod triangle;
 
+pub use point::{PointInstance, PointInstanceBuffer, PointPipeline, PointPushConstants};
 pub use triangle::TrianglePipeline;
 
 /// Object-safe interface for a compiled graphics pipeline.
@@ -31,6 +33,15 @@ pub trait Pipeline: Send + Sync {
 }
 
 impl Pipeline for TrianglePipeline {
+    fn raw(&self) -> vk::Pipeline {
+        self.raw
+    }
+    fn layout(&self) -> vk::PipelineLayout {
+        self.layout
+    }
+}
+
+impl Pipeline for PointPipeline {
     fn raw(&self) -> vk::Pipeline {
         self.raw
     }
