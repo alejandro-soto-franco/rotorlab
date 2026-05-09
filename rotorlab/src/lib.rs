@@ -9,6 +9,7 @@ pub mod animation;
 pub mod camera;
 pub mod encode;
 pub mod error;
+pub mod object;
 pub mod render;
 pub mod scene;
 

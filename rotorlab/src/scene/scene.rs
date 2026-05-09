@@ -38,6 +38,7 @@ use crate::render::{
     Device, FrameRecorder, HeadlessRenderTarget, Instance, PipelineCache, RenderPass,
 };
 use crate::scene::config::{Output, SceneConfig};
+use crate::scene::descriptor_pool::DescriptorPool;
 
 /// Output sink resolved at construction time.
 ///
@@ -91,10 +92,19 @@ pub struct Scene {
     camera: Camera,
     /// Timeline of scheduled animations. Stub for Task 10: see plan.
     timeline: Timeline,
-    /// Cache of GPU pipelines keyed by drawable kind. Stub for Task 3:
-    /// see plan.
+    /// Cache of GPU pipelines keyed by drawable kind. Populated
+    /// lazily by drawables during recording.
     #[allow(dead_code)]
     pipeline_cache: PipelineCache,
+    /// Per-scene descriptor pool. Plumbed through
+    /// [`crate::scene::FrameContext`] for future drawables; not
+    /// allocated from in Plan 3.
+    ///
+    /// Holds its own `Arc<Device>` clone, so the underlying
+    /// `VkDescriptorPool` is destroyed against a live device whatever
+    /// the field-drop order ends up being.
+    #[allow(dead_code)]
+    descriptor_pool: DescriptorPool,
     /// Output sink. `None` once `render` has consumed it. `Some` while
     /// the scene is alive and unrendered, so `Drop` can close it
     /// gracefully.
@@ -123,6 +133,7 @@ impl Scene {
         let render_pass = RenderPass::new(device.clone())?;
         let target = HeadlessRenderTarget::new(device.clone(), width, height)?;
         let recorder = FrameRecorder::new(device.clone(), &render_pass, &target)?;
+        let descriptor_pool = DescriptorPool::new(device.clone())?;
 
         let sink = match &config.output {
             Output::Mp4 { path, crf, preset } => {
@@ -157,6 +168,7 @@ impl Scene {
             camera,
             timeline: Timeline::new(),
             pipeline_cache: PipelineCache::new(),
+            descriptor_pool,
             sink: Some(sink),
         })
     }
