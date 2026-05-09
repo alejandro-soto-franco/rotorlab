@@ -30,7 +30,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::animation::Timeline;
+use crate::animation::{Animation, Timeline};
 use crate::camera::Camera;
 use crate::encode::FfmpegEncoder;
 use crate::error::{EncodeError, RotorlabError};
@@ -64,7 +64,13 @@ enum OutputSink {
 /// Construct with [`Scene::new`], drive with [`Scene::render`]. Dropping
 /// without rendering is safe; any in-flight FFmpeg child is closed
 /// cleanly in [`Drop`].
-pub struct Scene {
+///
+/// The `'anim` lifetime parameter is the borrow lifetime of any data
+/// the scheduled animations may capture (typically a drawable owned by
+/// the caller). Callers that schedule only owning animations can use
+/// the unconstrained form `Scene<'static>`, which is what type
+/// inference produces when there is nothing to bind against.
+pub struct Scene<'anim> {
     /// Frames-per-second for the output stream.
     fps: u32,
     /// Output resolution as `(width, height)`.
@@ -90,8 +96,10 @@ pub struct Scene {
     /// per-frame uniform.
     #[allow(dead_code)]
     camera: Camera,
-    /// Timeline of scheduled animations. Stub for Task 10: see plan.
-    timeline: Timeline,
+    /// Timeline of scheduled animations. Owns each `Box<dyn Animation
+    /// + 'anim>` and is dispatched once per frame by
+    /// [`Scene::render`].
+    timeline: Timeline<'anim>,
     /// Cache of GPU pipelines keyed by drawable kind. Populated
     /// lazily by drawables during recording.
     #[allow(dead_code)]
@@ -111,7 +119,7 @@ pub struct Scene {
     sink: Option<OutputSink>,
 }
 
-impl Scene {
+impl<'anim> Scene<'anim> {
     /// Construct a scene from configuration and a camera.
     ///
     /// On success, the Vulkan instance, device, render pass, headless
@@ -173,12 +181,38 @@ impl Scene {
         })
     }
 
+    /// Schedule an iterable of animations to start at the timeline's
+    /// current cursor.
+    ///
+    /// Thin wrapper over [`Timeline::play`]: the cursor advances by the
+    /// schedule's full footprint (max `start_offset + run_time` across
+    /// the iterable), the input box-iterable is consumed, and the
+    /// timeline owns the boxed animations from then on.
+    pub fn play<I>(&mut self, anims: I)
+    where
+        I: IntoIterator<Item = Box<dyn Animation + 'anim>>,
+    {
+        self.timeline.play(anims);
+    }
+
+    /// Advance the timeline cursor by `seconds` without scheduling any
+    /// animation.
+    ///
+    /// Thin wrapper over [`Timeline::wait`]: at the configured FPS this
+    /// produces `ceil(seconds * fps)` extra clear-only frames in the
+    /// output stream.
+    pub fn wait(&mut self, seconds: f32) {
+        self.timeline.wait(seconds);
+    }
+
     /// Run the frame loop and finalise the output sink.
     ///
     /// Frame count is `ceil(timeline.total_run_time() * fps)`. Each
-    /// frame is a clear-only render at `config.background` (real
-    /// drawables land in Plan 3 Tasks 4 through 8). Returns the number
-    /// of frames written to the sink.
+    /// frame dispatches every still-active timeline entry to its
+    /// `now = frame_index / fps`, then clears + reads back at
+    /// `config.background`. Real drawable rendering lands in Plan 3
+    /// Tasks 4 through 8. Returns the number of frames written to the
+    /// sink.
     ///
     /// Consumes `self`; the [`Drop`] impl is a no-op after this call
     /// because the sink has already been finalised.
@@ -199,7 +233,9 @@ impl Scene {
         // `render` consumes self, so it cannot be called twice.
         let mut sink = self.sink.take().unwrap();
 
-        for _ in 0..total_frames {
+        for f in 0..total_frames {
+            let now = f as f32 / self.fps as f32;
+            self.timeline.dispatch_frame(now);
             self.recorder
                 .clear_only(&self.render_pass, &self.target, self.background)
                 .map_err(RotorlabError::Render)?;
@@ -226,7 +262,7 @@ impl Scene {
     }
 }
 
-impl Drop for Scene {
+impl Drop for Scene<'_> {
     /// Close any still-open output sink cleanly.
     ///
     /// If [`Scene::render`] was called the sink is already gone and
@@ -377,5 +413,83 @@ mod tests {
         };
         let n = scene.render().expect("render zero-length timeline");
         assert_eq!(n, 0);
+    }
+
+    /// Test stub used by the Scene-level dispatch tests below. Records
+    /// every alpha it observes so the test can assert the trace shape
+    /// produced by the frame loop. Mirrors the in-module
+    /// `AlphaTrace` from [`crate::animation::timeline`] tests but
+    /// re-declared here so the visibility surface stays clean.
+    struct SceneAlphaTrace {
+        calls: std::sync::Arc<std::sync::Mutex<Vec<f32>>>,
+        run_time: f32,
+    }
+
+    impl crate::animation::Animation for SceneAlphaTrace {
+        fn run_time(&self) -> f32 {
+            self.run_time
+        }
+        fn rate_func(&self) -> crate::animation::RateFunc {
+            crate::animation::RateFunc::Linear
+        }
+        fn interpolate(&mut self, alpha: f32) {
+            self.calls.lock().unwrap().push(alpha);
+        }
+    }
+
+    #[test]
+    fn scene_wait_one_second_produces_60_frames_at_60_fps() {
+        let dir = match tempdir() {
+            Ok(d) => d,
+            Err(_) => return,
+        };
+        let cfg = SceneConfig {
+            fps: 60,
+            resolution: (64, 36),
+            output: Output::PngSequence {
+                dir: dir.path().to_path_buf(),
+            },
+            ..Default::default()
+        };
+        let Ok(mut scene) = Scene::new(cfg, default_camera()) else {
+            eprintln!("skip: vulkan unavailable");
+            return;
+        };
+        scene.wait(1.0);
+        let n = scene.render().expect("render wait(1.0) at 60 fps");
+        assert_eq!(n, 60);
+    }
+
+    #[test]
+    fn scene_play_dispatches_animations_through_render_loop() {
+        let dir = match tempdir() {
+            Ok(d) => d,
+            Err(_) => return,
+        };
+        let cfg = small_png_config(dir.path().to_path_buf());
+        let Ok(mut scene) = Scene::new(cfg, default_camera()) else {
+            eprintln!("skip: vulkan unavailable");
+            return;
+        };
+        let calls = std::sync::Arc::new(std::sync::Mutex::new(Vec::<f32>::new()));
+        let trace = SceneAlphaTrace {
+            calls: calls.clone(),
+            run_time: 1.0,
+        };
+        scene.play([Box::new(trace) as Box<dyn crate::animation::Animation>]);
+        let n = scene.render().expect("render play(trace)");
+        // small_png_config picks 30 fps, run_time=1.0 -> 30 frames.
+        assert_eq!(n, 30);
+        let observed = calls.lock().unwrap().clone();
+        assert_eq!(observed.len(), 30);
+        assert!((observed[0] - 0.0).abs() < 1e-6);
+        // Last frame's alpha is 29/30 (linear ease, frame index f goes
+        // 0..30, now = f/30, raw = (f/30) / 1.0 = f/30; the f == 30
+        // tick is excluded because total_frames == 30).
+        let last = *observed.last().unwrap();
+        assert!(
+            (last - (29.0_f32 / 30.0)).abs() < 1e-6,
+            "expected last alpha ~= 29/30, got {last}",
+        );
     }
 }
