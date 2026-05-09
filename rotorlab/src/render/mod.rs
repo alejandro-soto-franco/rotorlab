@@ -2,6 +2,8 @@
 
 pub mod device;
 pub mod instance;
+pub mod pipeline;
+pub mod pipelines;
 pub mod render_pass;
 pub mod render_target;
 
