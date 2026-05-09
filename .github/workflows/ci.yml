@@ -48,6 +48,15 @@ jobs:
       - name: Cargo test
         run: cargo test --workspace
 
+      - name: Render rotor_demo and verify mp4
+        run: |
+          set -euxo pipefail
+          cargo run --release --example rotor_demo
+          test -s rotor_demo.mp4 || { echo "rotor_demo.mp4 is empty"; exit 1; }
+          duration=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 rotor_demo.mp4)
+          echo "rotor_demo.mp4 duration: ${duration}s"
+          awk -v d="$duration" 'BEGIN { if (d+0 < 25 || d+0 > 35) { print "duration " d " out of range [25, 35]"; exit 1 } }'
+
       - name: Cargo doc
         run: cargo doc --workspace --no-deps
         env:

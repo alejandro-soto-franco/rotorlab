@@ -3,7 +3,8 @@ resolver = "3"
 members = ["rotorlab-ga", "rotorlab"]
 
 [workspace.package]
-version       = "0.0.4"
+# Crate versions are set explicitly in each crate's Cargo.toml so that
+# rotorlab-ga and rotorlab can ship on independent semver tracks.
 edition       = "2024"
 rust-version  = "1.85"
 authors       = ["Alejandro Soto Franco <sotofranco.eng@gmail.com>"]
