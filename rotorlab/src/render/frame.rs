@@ -61,10 +61,10 @@ impl FrameRecorder {
         // Step 3: create an unsignaled fence.
         let fence_info = vk::FenceCreateInfo::default(); // no SIGNALED flag = unsignaled
 
-        // Safety: `device.raw` is a valid VkDevice. `fence_info` is fully
-        // initialised. The returned VkFence is owned solely by `Self` and
-        // destroyed in Drop.
         let fence =
+            // Safety: `device.raw` is a valid VkDevice. `fence_info` is fully
+            // initialised. The returned VkFence is owned solely by `Self` and
+            // destroyed in Drop.
             unsafe { device.raw.create_fence(&fence_info, None) }.map_err(RenderError::Vulkan)?;
 
         Ok(Self {

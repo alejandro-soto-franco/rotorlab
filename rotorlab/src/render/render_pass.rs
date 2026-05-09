@@ -73,11 +73,11 @@ impl RenderPass {
             .dependencies(&dependencies);
 
         // Step 6: create the render pass.
-        // Safety: `device.raw` is a valid VkDevice. `info` and all referenced
-        // slices are alive for the duration of this call. No allocation
-        // callbacks are used (None). The returned VkRenderPass handle is owned
-        // solely by `Self` and is destroyed in the Drop impl.
         let raw =
+            // Safety: `device.raw` is a valid VkDevice. `info` and all referenced
+            // slices are alive for the duration of this call. No allocation
+            // callbacks are used (None). The returned VkRenderPass handle is owned
+            // solely by `Self` and is destroyed in the Drop impl.
             unsafe { device.raw.create_render_pass(&info, None) }.map_err(RenderError::Vulkan)?;
 
         // Step 7: return the initialised RenderPass.

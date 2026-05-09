@@ -39,11 +39,11 @@ impl Instance {
         let create_info = vk::InstanceCreateInfo::default().application_info(&app_info);
         // No enabled extensions and no enabled layers in v0.0.x (headless, no validation).
 
-        // Safety: `entry` is a valid, fully-loaded Vulkan loader. `create_info`
-        // and `app_info` are valid for the duration of this call. No allocation
-        // callbacks are used (None). The returned `AshInstance` becomes the
-        // sole owner of the VkInstance handle.
         let raw =
+            // Safety: `entry` is a valid, fully-loaded Vulkan loader. `create_info`
+            // and `app_info` are valid for the duration of this call. No allocation
+            // callbacks are used (None). The returned `AshInstance` becomes the
+            // sole owner of the VkInstance handle.
             unsafe { entry.create_instance(&create_info, None) }.map_err(RenderError::Vulkan)?;
 
         Ok(Arc::new(Self { entry, raw }))

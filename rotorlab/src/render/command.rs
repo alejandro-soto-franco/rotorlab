@@ -24,10 +24,10 @@ impl CommandPool {
             )
             .queue_family_index(device.graphics_family_index);
 
-        // Safety: `device.raw` is a valid VkDevice. `info` is fully initialised
-        // above and valid for the duration of this call. The returned
-        // VkCommandPool handle is owned solely by `Self` and destroyed in Drop.
         let raw =
+            // Safety: `device.raw` is a valid VkDevice. `info` is fully initialised
+            // above and valid for the duration of this call. The returned
+            // VkCommandPool handle is owned solely by `Self` and destroyed in Drop.
             unsafe { device.raw.create_command_pool(&info, None) }.map_err(RenderError::Vulkan)?;
 
         Ok(Self { device, raw })

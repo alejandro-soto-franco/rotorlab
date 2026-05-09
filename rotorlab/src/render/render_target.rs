@@ -56,9 +56,9 @@ impl HeadlessRenderTarget {
             .initial_layout(vk::ImageLayout::UNDEFINED);
 
         // Step 2: create the image.
-        // Safety: `device.raw` is a valid VkDevice. `image_info` is fully
-        // initialised above and valid for the duration of this call.
         let image =
+            // Safety: `device.raw` is a valid VkDevice. `image_info` is fully
+            // initialised above and valid for the duration of this call.
             unsafe { device.raw.create_image(&image_info, None) }.map_err(RenderError::Vulkan)?;
 
         // === Image memory ===
@@ -138,8 +138,8 @@ impl HeadlessRenderTarget {
             .sharing_mode(vk::SharingMode::EXCLUSIVE);
 
         // Step 12: create the staging buffer.
-        // Safety: `device.raw` is valid. `buffer_info` is fully initialised.
         let staging_buffer =
+            // Safety: `device.raw` is valid. `buffer_info` is fully initialised.
             unsafe { device.raw.create_buffer(&buffer_info, None) }.map_err(RenderError::Vulkan)?;
 
         // Step 13: query buffer memory requirements.

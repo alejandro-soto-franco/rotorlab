@@ -25,10 +25,10 @@ impl Device {
     /// targets a single device with no surface (headless).
     pub fn new(instance: Arc<Instance>) -> Result<Arc<Self>, RenderError> {
         // Step 1: enumerate physical devices.
-        // Safety: `instance.raw` is a valid VkInstance; the returned handles
-        // are device handles owned by the loader and remain valid until the
-        // instance is destroyed. We only read them here to select a device.
         let physical_devices =
+            // Safety: `instance.raw` is a valid VkInstance; the returned handles
+            // are device handles owned by the loader and remain valid until the
+            // instance is destroyed. We only read them here to select a device.
             unsafe { instance.raw.enumerate_physical_devices() }.map_err(RenderError::Vulkan)?;
 
         if physical_devices.is_empty() {
