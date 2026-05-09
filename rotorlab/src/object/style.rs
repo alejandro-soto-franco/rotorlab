@@ -2,8 +2,9 @@
 //!
 //! Plan 3 Task 5 introduces [`Color`], a linear-space RGBA value used by
 //! the [`Point`](crate::object::Point) drawable and (Task 7) the
-//! upcoming `Line` drawable. Stroke and fill abstractions arrive in
-//! Plan 3 Task 7.
+//! [`Line`](crate::object::Line) drawable. Plan 3 Task 7 adds
+//! [`Stroke`], the line-styling primitive carried by `Line` (and, in
+//! Task 8, by the wireframe edges of `Plane`).
 
 /// Linear-space RGBA color with `f32` components.
 ///
@@ -85,6 +86,38 @@ impl Color {
     }
 }
 
+/// Stroke styling for lines, plane wireframes, and any future
+/// path-stroked drawable.
+///
+/// `thickness` is in screen-space pixels (matches the `radius`
+/// semantic on [`Point`](crate::object::Point)): a stroke with
+/// `thickness = 2.0` covers a 2-pixel-wide band on screen,
+/// regardless of camera distance or projection.
+#[derive(Copy, Clone, Debug)]
+pub struct Stroke {
+    /// Stroke color (linear sRGB).
+    pub color: Color,
+    /// Stroke thickness in screen-space pixels.
+    pub thickness: f32,
+}
+
+impl Stroke {
+    /// Construct a stroke from an explicit color and screen-pixel
+    /// thickness.
+    pub const fn new(color: Color, thickness: f32) -> Self {
+        Self { color, thickness }
+    }
+
+    /// Convenience default: opaque white at 1.5 screen-pixel
+    /// thickness. Adjust per drawable as needed.
+    pub fn default_white() -> Self {
+        Self {
+            color: Color::WHITE,
+            thickness: 1.5,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -112,5 +145,19 @@ mod tests {
         ] {
             assert_eq!(c.a, 1.0);
         }
+    }
+
+    #[test]
+    fn stroke_new_round_trips_color_and_thickness() {
+        let s = Stroke::new(Color::RED, 3.0);
+        assert_eq!(s.color, Color::RED);
+        assert_eq!(s.thickness, 3.0);
+    }
+
+    #[test]
+    fn stroke_default_white_is_white_and_one_point_five_pixels() {
+        let s = Stroke::default_white();
+        assert_eq!(s.color, Color::WHITE);
+        assert_eq!(s.thickness, 1.5);
     }
 }

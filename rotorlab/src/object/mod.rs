@@ -2,13 +2,16 @@
 //!
 //! Plan 3 Task 3 introduces the [`Drawable`] trait and the [`Aabb`]
 //! bounds type. Plan 3 Task 5 adds the first concrete drawable
-//! ([`Point`]) and the [`Color`] visual-style primitive. Line and
-//! plane drawables land in Plan 3 Tasks 7 and 8.
+//! ([`Point`]) and the [`Color`] visual-style primitive. Plan 3
+//! Task 7 adds the [`Line`] drawable and the [`Stroke`] styling
+//! primitive; the plane drawable lands in Plan 3 Task 8.
 
 pub mod drawable;
+pub mod line;
 pub mod point;
 pub mod style;
 
 pub use drawable::{Aabb, Drawable};
+pub use line::Line;
 pub use point::Point;
-pub use style::Color;
+pub use style::{Color, Stroke};
