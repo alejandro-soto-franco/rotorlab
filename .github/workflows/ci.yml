@@ -24,6 +24,16 @@ jobs:
       - name: Cache cargo registry and target
         uses: Swatinem/rust-cache@v2
 
+      - name: Install Vulkan loader, Mesa lavapipe, and ffmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libvulkan1 vulkan-tools mesa-vulkan-drivers ffmpeg
+
+      - name: Verify Vulkan loader sees lavapipe
+        env:
+          VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/lvp_icd.x86_64.json
+        run: vulkaninfo --summary | head -30
+
       - name: Cargo fmt
         run: cargo fmt --all -- --check
 
@@ -31,6 +41,8 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Cargo test
+        env:
+          VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/lvp_icd.x86_64.json
         run: cargo test --workspace
 
       - name: Cargo doc
