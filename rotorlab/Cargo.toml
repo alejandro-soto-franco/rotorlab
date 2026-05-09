@@ -18,7 +18,7 @@ ash          = { workspace = true }
 bytemuck     = { workspace = true }
 log          = { workspace = true }
 thiserror    = { workspace = true }
-rotorlab-ga  = { path = "../rotorlab-ga", version = "0.0.2" }
+rotorlab-ga  = { path = "../rotorlab-ga", version = "0.0.3" }
 
 [build-dependencies]
 shaderc = { workspace = true }

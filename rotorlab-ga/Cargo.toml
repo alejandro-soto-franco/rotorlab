@@ -1,6 +1,6 @@
 [package]
 name              = "rotorlab-ga"
-description       = "Const-generic geometric algebra core for the rotorlab animation engine. PGA3 ships in v0.0.1."
+description       = "Const-generic geometric algebra core for the rotorlab animation engine. Implements 3D Projective Geometric Algebra (Cl(3,0,1)) with metric-independent Poincaré duals."
 version.workspace      = true
 edition.workspace      = true
 rust-version.workspace = true
