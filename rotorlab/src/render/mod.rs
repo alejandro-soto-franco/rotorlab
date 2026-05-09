@@ -1,1 +1,5 @@
-//! placeholder; filled in by subsequent tasks
+//! Vulkan render path.
+
+pub mod instance;
+
+pub use instance::Instance;
