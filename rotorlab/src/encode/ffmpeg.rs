@@ -22,6 +22,23 @@ impl FfmpegEncoder {
     /// Spawn ffmpeg writing to `output_path`. Resolution and fps are baked in.
     /// Quality preset: x264 CRF 18 (visually lossless), preset slow.
     pub fn new(output_path: &Path, width: u32, height: u32, fps: u32) -> Result<Self, EncodeError> {
+        Self::with_quality(output_path, width, height, fps, 18, "slow")
+    }
+
+    /// Spawn ffmpeg with explicit `crf` and x264 `preset`.
+    ///
+    /// `preset` must be one of x264's preset names (see
+    /// [`crate::scene::config::H264Preset::as_str`]). The string lifetime
+    /// is `'static` in practice but we accept any borrowed `&str` so
+    /// callers do not have to convert.
+    pub fn with_quality(
+        output_path: &Path,
+        width: u32,
+        height: u32,
+        fps: u32,
+        crf: u32,
+        preset: &str,
+    ) -> Result<Self, EncodeError> {
         let child = Command::new("ffmpeg")
             .args([
                 "-y",
@@ -38,9 +55,9 @@ impl FfmpegEncoder {
                 "-c:v",
                 "libx264",
                 "-preset",
-                "slow",
+                preset,
                 "-crf",
-                "18",
+                &crf.to_string(),
                 "-pix_fmt",
                 "yuv420p",
                 output_path.to_str().expect("utf8 path"),

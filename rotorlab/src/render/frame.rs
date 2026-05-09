@@ -260,6 +260,166 @@ impl FrameRecorder {
 
         Ok(())
     }
+
+    /// Record + submit + wait + copy-to-staging a clear-only frame.
+    ///
+    /// Identical to [`render_triangle`](Self::render_triangle) but with
+    /// no pipeline bind, no vertex buffer bind, and no draw call: the
+    /// render pass simply clears the color attachment to `clear_color`
+    /// and the engine copies the result to the staging buffer.
+    ///
+    /// This is the path used by Plan 3 Task 2's `Scene::render` for a
+    /// zero-drawable timeline. Real drawables land in Plan 3 Tasks 4
+    /// through 8.
+    pub fn clear_only(
+        &self,
+        render_pass: &RenderPass,
+        target: &HeadlessRenderTarget,
+        clear_color: [f32; 4],
+    ) -> Result<(), RenderError> {
+        // Step 1: reset the command buffer to record fresh commands.
+        // Safety: `self.command_buffer` is a valid primary command buffer
+        // allocated from `self.pool`, and no GPU work referencing it is
+        // in-flight (we wait on `self.fence` after every submission).
+        unsafe {
+            self.device
+                .raw
+                .reset_command_buffer(self.command_buffer, vk::CommandBufferResetFlags::empty())
+                .map_err(RenderError::Vulkan)?;
+        }
+
+        // Step 2: begin recording with ONE_TIME_SUBMIT semantics.
+        let begin_info = vk::CommandBufferBeginInfo::default()
+            .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
+
+        // Safety: `self.command_buffer` is in the initial state after the reset
+        // above. `begin_info` is fully initialised.
+        unsafe {
+            self.device
+                .raw
+                .begin_command_buffer(self.command_buffer, &begin_info)
+                .map_err(RenderError::Vulkan)?;
+        }
+
+        // Step 3: begin and immediately end the render pass. The render
+        // pass loadOp is CLEAR, so this clears the color attachment to
+        // `clear_color`; the final layout transition still runs at
+        // EndRenderPass, leaving the image in TRANSFER_SRC_OPTIMAL.
+        let clear_values = [vk::ClearValue {
+            color: vk::ClearColorValue {
+                float32: clear_color,
+            },
+        }];
+        let render_area = vk::Rect2D::default()
+            .offset(vk::Offset2D { x: 0, y: 0 })
+            .extent(vk::Extent2D {
+                width: self.width,
+                height: self.height,
+            });
+        let rp_begin = vk::RenderPassBeginInfo::default()
+            .render_pass(render_pass.raw)
+            .framebuffer(self.framebuffer)
+            .render_area(render_area)
+            .clear_values(&clear_values);
+
+        // Safety: `self.command_buffer` is recording. All handles
+        // (`render_pass`, `self.framebuffer`) are valid and belong to
+        // the same device.
+        unsafe {
+            self.device.raw.cmd_begin_render_pass(
+                self.command_buffer,
+                &rp_begin,
+                vk::SubpassContents::INLINE,
+            );
+        }
+
+        // Safety: we are inside a render pass subpass; this ends it
+        // correctly. No draw calls are issued; the load-clear is the
+        // only color-attachment write.
+        unsafe {
+            self.device.raw.cmd_end_render_pass(self.command_buffer);
+        }
+
+        // Step 4: copy the image into the staging buffer.
+        let region = vk::BufferImageCopy::default()
+            .buffer_offset(0)
+            .buffer_row_length(0)
+            .buffer_image_height(0)
+            .image_subresource(
+                vk::ImageSubresourceLayers::default()
+                    .aspect_mask(vk::ImageAspectFlags::COLOR)
+                    .mip_level(0)
+                    .base_array_layer(0)
+                    .layer_count(1),
+            )
+            .image_offset(vk::Offset3D { x: 0, y: 0, z: 0 })
+            .image_extent(vk::Extent3D {
+                width: self.width,
+                height: self.height,
+                depth: 1,
+            });
+
+        // Safety: `target.image` is in TRANSFER_SRC_OPTIMAL layout (set
+        // by the render pass final_layout above). `target.staging_buffer`
+        // is a valid TRANSFER_DST buffer large enough to hold
+        // `width * height * 4` bytes.
+        unsafe {
+            self.device.raw.cmd_copy_image_to_buffer(
+                self.command_buffer,
+                target.image,
+                vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+                target.staging_buffer,
+                &[region],
+            );
+        }
+
+        // Step 5: end recording.
+        // Safety: all commands have been recorded; no render pass is
+        // active.
+        unsafe {
+            self.device
+                .raw
+                .end_command_buffer(self.command_buffer)
+                .map_err(RenderError::Vulkan)?;
+        }
+
+        // Step 6: submit the command buffer to the graphics queue.
+        let command_buffers = [self.command_buffer];
+        let submit = vk::SubmitInfo::default().command_buffers(&command_buffers);
+
+        // Safety: `self.device.graphics_queue` is the device's graphics
+        // queue. `self.fence` is unsignaled (we reset it after every
+        // wait below). The command buffer is fully recorded and
+        // references only valid handles.
+        unsafe {
+            self.device
+                .raw
+                .queue_submit(self.device.graphics_queue, &[submit], self.fence)
+                .map_err(RenderError::Vulkan)?;
+        }
+
+        // Step 7: wait for the GPU to finish.
+        // Safety: `self.fence` was submitted to the queue in Step 6.
+        // `u64::MAX` is effectively an infinite timeout.
+        unsafe {
+            self.device
+                .raw
+                .wait_for_fences(&[self.fence], true, u64::MAX)
+                .map_err(RenderError::Vulkan)?;
+        }
+
+        // Step 8: reset the fence to unsignaled for the next render call.
+        // Safety: `self.fence` is currently in the signaled state (Step 7
+        // returned SUCCESS). Resetting it here makes it safe to reuse.
+        unsafe {
+            self.device
+                .raw
+                .reset_fences(&[self.fence])
+                .map_err(RenderError::Vulkan)?;
+        }
+
+        Ok(())
+    }
 }
 
 impl Drop for FrameRecorder {
