@@ -225,6 +225,138 @@ impl Drop for TrianglePipeline {
     }
 }
 
+/// A device-allocated vertex buffer containing `TRIANGLE_VERTICES`.
+///
+/// Host-visible memory in v0.0.x for simplicity; if frame rate matters we'll
+/// add a staging-buffer-then-device-local upload path later.
+pub struct TriangleVertexBuffer {
+    /// Owning device.
+    pub device: Arc<Device>,
+    /// The buffer handle.
+    pub buffer: vk::Buffer,
+    /// Memory backing the buffer.
+    pub memory: vk::DeviceMemory,
+}
+
+impl TriangleVertexBuffer {
+    /// Allocate a host-visible vertex buffer and copy `TRIANGLE_VERTICES` into it.
+    pub fn new(device: Arc<Device>) -> Result<Self, RenderError> {
+        let size_bytes = (std::mem::size_of::<TriangleVertex>() * 3) as u64;
+
+        // Step 2: build the buffer create info.
+        let buffer_info = vk::BufferCreateInfo::default()
+            .size(size_bytes)
+            .usage(vk::BufferUsageFlags::VERTEX_BUFFER)
+            .sharing_mode(vk::SharingMode::EXCLUSIVE);
+
+        // Step 3: create the buffer.
+        // Safety: `device.raw` is a valid VkDevice; `buffer_info` is fully
+        // populated. The returned handle is owned by `Self` and destroyed in Drop.
+        let buffer = unsafe { device.raw.create_buffer(&buffer_info, None) }?;
+
+        // Step 4: query memory requirements.
+        // Safety: `buffer` is a valid VkBuffer just created above.
+        let requirements = unsafe { device.raw.get_buffer_memory_requirements(buffer) };
+
+        // Step 5: get physical device memory properties.
+        // Safety: `device.physical` is a valid VkPhysicalDevice selected during
+        // device creation and remains valid for the lifetime of the instance.
+        let mem_props = unsafe {
+            device
+                .instance
+                .raw
+                .get_physical_device_memory_properties(device.physical)
+        };
+
+        // Step 6: find a HOST_VISIBLE | HOST_COHERENT memory type.
+        let required_flags =
+            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT;
+        let memory_type_index =
+            find_memory_type(&mem_props, requirements.memory_type_bits, required_flags)
+                .ok_or_else(|| {
+                    RenderError::OutOfMemory(
+                        "no HOST_VISIBLE | HOST_COHERENT memory type for vertex buffer".into(),
+                    )
+                })?;
+
+        // Step 7: allocate device memory.
+        let alloc_info = vk::MemoryAllocateInfo::default()
+            .allocation_size(requirements.size)
+            .memory_type_index(memory_type_index);
+        // Safety: `device.raw` is a valid VkDevice; `alloc_info` is fully
+        // populated with a valid memory type index.
+        let memory = unsafe { device.raw.allocate_memory(&alloc_info, None) }?;
+
+        // Step 8: bind the buffer to the allocated memory.
+        // Safety: `buffer` and `memory` are valid handles; offset 0 satisfies
+        // the buffer's alignment requirement because it is always a multiple of
+        // any required alignment.
+        unsafe { device.raw.bind_buffer_memory(buffer, memory, 0) }?;
+
+        // Step 9: map the memory.
+        // Safety: `memory` is valid and unbound to any other host mapping;
+        // vk::WHOLE_SIZE maps the full allocation.
+        let mapped = unsafe {
+            device
+                .raw
+                .map_memory(memory, 0, vk::WHOLE_SIZE, vk::MemoryMapFlags::empty())
+        }?;
+
+        // Step 10: copy vertex data into the mapped region.
+        // Safety: `mapped` points to at least `size_bytes` bytes of host-visible
+        // device memory; `TRIANGLE_VERTICES` is a valid array of the same size;
+        // the memory is HOST_COHERENT so no explicit flush is needed.
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                TRIANGLE_VERTICES.as_ptr().cast::<u8>(),
+                mapped.cast::<u8>(),
+                size_bytes as usize,
+            );
+        }
+
+        // Step 11: unmap memory.
+        // Safety: `memory` is currently mapped (step 9 succeeded); we will not
+        // access `mapped` after this point.
+        unsafe { device.raw.unmap_memory(memory) };
+
+        Ok(Self {
+            device,
+            buffer,
+            memory,
+        })
+    }
+}
+
+impl Drop for TriangleVertexBuffer {
+    fn drop(&mut self) {
+        // Safety: caller ensures no in-flight GPU work uses this buffer.
+        unsafe {
+            self.device.raw.destroy_buffer(self.buffer, None);
+            self.device.raw.free_memory(self.memory, None);
+        }
+    }
+}
+
+/// File-private memory-type finder (duplicates the one in render_target.rs;
+/// dedupe is a future refactor).
+fn find_memory_type(
+    properties: &vk::PhysicalDeviceMemoryProperties,
+    memory_type_bits: u32,
+    required_flags: vk::MemoryPropertyFlags,
+) -> Option<u32> {
+    for i in 0..properties.memory_type_count {
+        let bit = 1u32 << i;
+        if (memory_type_bits & bit) != 0
+            && properties.memory_types[i as usize]
+                .property_flags
+                .contains(required_flags)
+        {
+            return Some(i);
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -237,5 +369,13 @@ mod tests {
         let pass = RenderPass::new(d.clone()).expect("render pass");
         let p = TrianglePipeline::new(d, &pass, 1920, 1080).expect("pipeline");
         drop(p);
+    }
+
+    #[test]
+    fn create_vertex_buffer_smoke() {
+        let Ok(i) = Instance::new() else { return };
+        let Ok(d) = Device::new(i) else { return };
+        let vbo = TriangleVertexBuffer::new(d).expect("vbo");
+        drop(vbo);
     }
 }
