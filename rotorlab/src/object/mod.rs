@@ -5,13 +5,18 @@
 //! ([`Point`]) and the [`Color`] visual-style primitive. Plan 3
 //! Task 7 adds the [`Line`] drawable and the [`Stroke`] styling
 //! primitive. Plan 3 Task 8 adds the [`Plane`] wireframe drawable.
+//! Plan 3 Task 11 adds the capability traits ([`Translatable`],
+//! [`Rotatable`], [`MotorBacked`], [`HasOpacity`]) used by the stock
+//! animation set.
 
+pub mod capability;
 pub mod drawable;
 pub mod line;
 pub mod plane;
 pub mod point;
 pub mod style;
 
+pub use capability::{HasOpacity, MotorBacked, Rotatable, Translatable};
 pub use drawable::{Aabb, Drawable};
 pub use line::Line;
 pub use plane::Plane;

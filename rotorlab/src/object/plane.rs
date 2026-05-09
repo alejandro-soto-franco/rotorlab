@@ -23,6 +23,7 @@
 //! pure `e3` blade.
 
 use crate::camera::Camera;
+use crate::object::capability::HasOpacity;
 use crate::object::drawable::{Aabb, Drawable};
 use crate::object::line::Line;
 use crate::object::style::Stroke;
@@ -178,6 +179,15 @@ impl Drawable for Plane {
             min: [min[0] - t, min[1] - t, min[2] - t],
             max: [max[0] + t, max[1] + t, max[2] + t],
         }
+    }
+}
+
+impl HasOpacity for Plane {
+    /// Drive the wireframe stroke's straight alpha channel. The four
+    /// edges share this stroke, so a single call fades all of them
+    /// uniformly.
+    fn set_opacity(&mut self, alpha: f32) {
+        self.stroke.color.a = alpha;
     }
 }
 

@@ -22,11 +22,12 @@
 //!   sphere intersection.
 
 use crate::camera::Camera;
+use crate::object::capability::{HasOpacity, Rotatable, Translatable};
 use crate::object::drawable::{Aabb, Drawable};
 use crate::object::style::Stroke;
 use crate::render::pipelines::LineInstance;
 use crate::scene::FrameContext;
-use rotorlab_ga::pga3::{self, Point as PgaPoint};
+use rotorlab_ga::pga3::{self, Bivector, Line as PgaLine, Point as PgaPoint};
 
 /// A drawable line segment: two PGA3 endpoints and a [`Stroke`].
 ///
@@ -146,6 +147,35 @@ impl Drawable for Line {
                 ae[2].max(be[2]) + t,
             ],
         }
+    }
+}
+
+impl Translatable for Line {
+    /// Translate both endpoints by `delta` in world space, rebuilding
+    /// each as a unit-weight PGA3 point.
+    fn translate_by(&mut self, delta: [f32; 3]) {
+        let ae = self.a.to_euclidean();
+        let be = self.b.to_euclidean();
+        self.a = pga3::point(ae[0] + delta[0], ae[1] + delta[1], ae[2] + delta[2]);
+        self.b = pga3::point(be[0] + delta[0], be[1] + delta[1], be[2] + delta[2]);
+    }
+}
+
+impl Rotatable for Line {
+    /// Rotate both endpoints around the supplied PGA3 axis line by
+    /// `angle` radians via the rotor sandwich product.
+    fn rotate_by(&mut self, axis: PgaLine, angle: f32) {
+        let bivector = Bivector(axis.0);
+        let rotor = pga3::rotor(bivector, angle);
+        self.a = PgaPoint(rotor.0.apply(&self.a.0));
+        self.b = PgaPoint(rotor.0.apply(&self.b.0));
+    }
+}
+
+impl HasOpacity for Line {
+    /// Drive the stroke's straight alpha channel.
+    fn set_opacity(&mut self, alpha: f32) {
+        self.stroke.color.a = alpha;
     }
 }
 

@@ -14,11 +14,12 @@
 //! convention used by the upstream [`PointPipeline`].
 
 use crate::camera::Camera;
+use crate::object::capability::{HasOpacity, Rotatable, Translatable};
 use crate::object::drawable::{Aabb, Drawable};
 use crate::object::style::Color;
 use crate::render::pipelines::PointInstance;
 use crate::scene::FrameContext;
-use rotorlab_ga::pga3::Point as PgaPoint;
+use rotorlab_ga::pga3::{self, Bivector, Line as PgaLine, Point as PgaPoint};
 
 /// A drawable point: a GA position, a linear-sRGB color, and a
 /// screen-pixel disk radius.
@@ -95,6 +96,37 @@ impl Drawable for Point {
                 xyz[2] + self.radius,
             ],
         }
+    }
+}
+
+impl Translatable for Point {
+    /// Translate the point by adding `delta` to its Euclidean
+    /// coordinates and rebuilding a unit-weight PGA3 point.
+    fn translate_by(&mut self, delta: [f32; 3]) {
+        let xyz = self.position.to_euclidean();
+        self.position = pga3::point(xyz[0] + delta[0], xyz[1] + delta[1], xyz[2] + delta[2]);
+    }
+}
+
+impl Rotatable for Point {
+    /// Rotate the point around the supplied PGA3 axis line by `angle`
+    /// radians, via the rotor sandwich product.
+    ///
+    /// The axis bivector is taken straight from the line's
+    /// [`Multivector`](rotorlab_ga::Multivector) storage so that
+    /// rotations composed by the caller (axis built once, multiple
+    /// rotations of the same drawable) remain numerically consistent.
+    fn rotate_by(&mut self, axis: PgaLine, angle: f32) {
+        let bivector = Bivector(axis.0);
+        let rotor = pga3::rotor(bivector, angle);
+        self.position = PgaPoint(rotor.0.apply(&self.position.0));
+    }
+}
+
+impl HasOpacity for Point {
+    /// Drive the disk's straight alpha channel.
+    fn set_opacity(&mut self, alpha: f32) {
+        self.color.a = alpha;
     }
 }
 
