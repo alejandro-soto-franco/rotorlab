@@ -183,7 +183,9 @@ impl Scene {
         let (width, height) = self.resolution;
         let mut host = vec![0u8; (width as usize) * (height as usize) * 4];
 
-        let mut sink = self.sink.take().expect("sink only taken in render");
+        // Invariant: sink is set in `Scene::new` and only taken here.
+        // `render` consumes self, so it cannot be called twice.
+        let mut sink = self.sink.take().unwrap();
 
         for _ in 0..total_frames {
             self.recorder
@@ -259,11 +261,14 @@ fn write_bgra_png(
         dst[2] = src[0];
         dst[3] = src[3];
     }
+    // Buffer-shape mismatch is a caller-side bug (wrong width/height vs.
+    // bgra length), not an `image` crate failure, so it stays an `Io`
+    // variant. The save error below comes from inside the `image` crate
+    // and gets the structured `Image` variant via `?`.
     let img = image::RgbaImage::from_raw(width, height, rgba)
         .ok_or_else(|| EncodeError::Io(std::io::Error::other("rgba buffer size mismatch")))?;
     let path = dir.join(format!("frame_{index:06}.png"));
-    img.save(&path)
-        .map_err(|e| EncodeError::Io(std::io::Error::other(format!("png save: {e}"))))?;
+    img.save(&path)?;
     Ok(())
 }
 

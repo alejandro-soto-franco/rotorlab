@@ -51,6 +51,9 @@ pub enum EncodeError {
     /// FFmpeg binary not found on PATH.
     #[error("ffmpeg binary not found on PATH")]
     FfmpegNotFound,
+    /// Image encoding failure (PNG save, format conversion).
+    #[error("image encoding error: {0}")]
+    Image(#[from] image::ImageError),
 }
 
 #[cfg(test)]

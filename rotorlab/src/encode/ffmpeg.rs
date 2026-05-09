@@ -31,6 +31,11 @@ impl FfmpegEncoder {
     /// [`crate::scene::config::H264Preset::as_str`]). The string lifetime
     /// is `'static` in practice but we accept any borrowed `&str` so
     /// callers do not have to convert.
+    ///
+    /// Caller must pass `crf` in `0..=51` (x264 range; 0 = lossless, 18 = visually lossless,
+    /// 23 = default x264 quality, 51 = worst). Values outside this range cause ffmpeg to
+    /// fail at first-frame submission with `EncodeError::FfmpegExit`. `preset` must be one
+    /// of the strings produced by `H264Preset::as_str` (or any string x264 recognises).
     pub fn with_quality(
         output_path: &Path,
         width: u32,
