@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["rotorlab-ga"]
+members = ["rotorlab-ga", "rotorlab"]
 
 [workspace.package]
 version       = "0.0.2"
@@ -18,6 +18,10 @@ thiserror   = { version = "2", default-features = false, features = ["std"] }
 proptest    = "1"
 serde       = { version = "1", features = ["derive"] }
 serde_json  = "1"
+ash         = { version = "0.38", default-features = false, features = ["loaded"] }
+shaderc     = "0.9"
+image       = { version = "0.25", default-features = false, features = ["png"] }
+tempfile    = "3"
 
 [workspace.lints.rust]
 missing_docs           = "warn"

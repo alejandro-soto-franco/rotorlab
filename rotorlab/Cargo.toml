@@ -1,0 +1,31 @@
+[package]
+name              = "rotorlab"
+description       = "GA-first Rust math-animation engine. Renders explainer videos to mp4 via raw Vulkan + FFmpeg."
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+authors.workspace      = true
+license.workspace      = true
+repository.workspace   = true
+homepage.workspace     = true
+keywords    = ["graphics", "vulkan", "animation", "math", "geometric-algebra"]
+categories  = ["graphics", "multimedia::video"]
+readme      = "README.md"
+build       = "build.rs"
+
+[dependencies]
+ash          = { workspace = true }
+bytemuck     = { workspace = true }
+log          = { workspace = true }
+thiserror    = { workspace = true }
+rotorlab-ga  = { path = "../rotorlab-ga", version = "0.0.2" }
+
+[build-dependencies]
+shaderc = { workspace = true }
+
+[dev-dependencies]
+image      = { workspace = true }
+tempfile   = { workspace = true }
+
+[lints]
+workspace = true
