@@ -4,9 +4,11 @@
 
 use ash::vk;
 
+pub mod line;
 pub mod point;
 pub mod triangle;
 
+pub use line::{LineInstance, LineInstanceBuffer, LinePipeline, LinePushConstants};
 pub use point::{PointInstance, PointInstanceBuffer, PointPipeline, PointPushConstants};
 pub use triangle::TrianglePipeline;
 
@@ -42,6 +44,15 @@ impl Pipeline for TrianglePipeline {
 }
 
 impl Pipeline for PointPipeline {
+    fn raw(&self) -> vk::Pipeline {
+        self.raw
+    }
+    fn layout(&self) -> vk::PipelineLayout {
+        self.layout
+    }
+}
+
+impl Pipeline for LinePipeline {
     fn raw(&self) -> vk::Pipeline {
         self.raw
     }
