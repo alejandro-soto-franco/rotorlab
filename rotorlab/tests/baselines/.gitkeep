@@ -1,0 +1,9 @@
+# Reserved for committed `rotor_demo_frame_*.png` baselines.
+#
+# Plan 3 Task 13 ships the harness (tests/rotor_demo_baselines.rs) but
+# leaves this directory empty. A follow-up task captures the five
+# canonical frames under lavapipe and commits them here as
+# `rotor_demo_frame_60.png`, `rotor_demo_frame_600.png`,
+# `rotor_demo_frame_900.png`, `rotor_demo_frame_1500.png`, and
+# `rotor_demo_frame_1740.png`. The test then byte-compares against
+# them whenever `ROTORLAB_TEST_LAVAPIPE=1` is set.
