@@ -72,14 +72,11 @@ impl Point {
 
 impl Drawable for Point {
     fn record(&self, ctx: &mut FrameContext<'_>, _camera: &Camera) {
-        // Plan 3 Task 5 stops at the conversion; Tasks 11-12 wire the
-        // resulting `PointInstance` through an instance-buffer staging
-        // API on `FrameContext` that does not exist yet. Until then we
-        // call `to_instance()` for its conversion side effect (and to
-        // keep this method honest about doing the geometric work) and
-        // discard the result.
-        let _ = ctx;
-        let _ = self.to_instance();
+        // Plan 3 Task 12: push one PointInstance into the per-frame
+        // accumulator on `FrameContext`. The Scene::render_with frame
+        // loop drains the accumulator each frame, uploads it to the
+        // per-scene PointInstanceBuffer, and issues the bind + draw.
+        ctx.point_instances.push(self.to_instance());
     }
 
     fn bounds(&self) -> Aabb {

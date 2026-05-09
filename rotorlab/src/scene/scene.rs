@@ -34,11 +34,26 @@ use crate::animation::{Animation, Timeline};
 use crate::camera::Camera;
 use crate::encode::FfmpegEncoder;
 use crate::error::{EncodeError, RotorlabError};
+use crate::object::Drawable;
+use crate::render::pipelines::line::{LineInstanceBuffer, LinePipeline, LinePushConstants};
+use crate::render::pipelines::point::{PointInstanceBuffer, PointPipeline, PointPushConstants};
 use crate::render::{
     Device, FrameRecorder, HeadlessRenderTarget, Instance, PipelineCache, RenderPass,
 };
 use crate::scene::config::{Output, SceneConfig};
 use crate::scene::descriptor_pool::DescriptorPool;
+use crate::scene::frame_context::FrameContext;
+
+/// Per-scene instance-buffer capacity for [`Point`](crate::object::Point)
+/// drawables. 1024 is comfortable for every Plan 3 demo and is well
+/// under the 16 MiB budget desktop GPUs offer for a single
+/// host-visible buffer.
+const POINT_INSTANCE_CAPACITY: u32 = 1024;
+
+/// Per-scene instance-buffer capacity for [`Line`](crate::object::Line)
+/// drawables. Same rationale as
+/// [`POINT_INSTANCE_CAPACITY`](POINT_INSTANCE_CAPACITY).
+const LINE_INSTANCE_CAPACITY: u32 = 1024;
 
 /// Output sink resolved at construction time.
 ///
@@ -61,15 +76,21 @@ enum OutputSink {
 /// A scene: GPU resources + camera + timeline + pipeline cache + output
 /// sink, ready to render.
 ///
-/// Construct with [`Scene::new`], drive with [`Scene::render`]. Dropping
-/// without rendering is safe; any in-flight FFmpeg child is closed
-/// cleanly in [`Drop`].
+/// Construct with [`Scene::new`], drive with [`Scene::render`] (clear
+/// only) or [`Scene::render_with`] (drawables). Dropping without
+/// rendering is safe; any in-flight FFmpeg child is closed cleanly in
+/// [`Drop`].
 ///
 /// The `'anim` lifetime parameter is the borrow lifetime of any data
 /// the scheduled animations may capture (typically a drawable owned by
 /// the caller). Callers that schedule only owning animations can use
 /// the unconstrained form `Scene<'static>`, which is what type
 /// inference produces when there is nothing to bind against.
+///
+/// Field-drop order matters: Vulkan handles must be torn down before
+/// the [`Device`] that created them. Rust drops fields in declaration
+/// order, so the per-frame resources are listed before
+/// [`device`](Self::device) and [`instance`](Self::instance).
 pub struct Scene<'anim> {
     /// Frames-per-second for the output stream.
     fps: u32,
@@ -77,55 +98,63 @@ pub struct Scene<'anim> {
     resolution: (u32, u32),
     /// Linear-RGBA clear color used between drawables.
     background: [f32; 4],
+    /// Camera that frames the scene. Read-only once the scene is
+    /// constructed.
+    camera: Camera,
+    /// Timeline of scheduled animations. Owns each `Box<dyn Animation
+    /// + 'anim>` and is dispatched once per frame by
+    /// [`Scene::render_with`].
+    timeline: Timeline<'anim>,
+    /// Output sink. `None` once `render` has consumed it. `Some` while
+    /// the scene is alive and unrendered, so `Drop` can close it
+    /// gracefully.
+    sink: Option<OutputSink>,
+    /// Headless target the frame loop renders into and reads back from.
+    target: HeadlessRenderTarget,
+    /// Per-frame recorder; reused across the loop.
+    recorder: FrameRecorder,
+    /// Per-scene point instance buffer. Drained and re-uploaded each
+    /// frame from the per-frame [`FrameContext::point_instances`]
+    /// accumulator.
+    point_buffer: PointInstanceBuffer,
+    /// Per-scene line instance buffer. Drained and re-uploaded each
+    /// frame from the per-frame [`FrameContext::line_instances`]
+    /// accumulator.
+    line_buffer: LineInstanceBuffer,
+    /// GPU pipeline for [`Point`](crate::object::Point) drawables.
+    point_pipeline: PointPipeline,
+    /// GPU pipeline for [`Line`](crate::object::Line) and the wireframe
+    /// edges of [`Plane`](crate::object::Plane) drawables.
+    line_pipeline: LinePipeline,
+    /// Single VkRenderPass used by the frame loop.
+    render_pass: RenderPass,
+    /// Per-scene descriptor pool. Plumbed through
+    /// [`crate::scene::FrameContext`] for future drawables; not
+    /// allocated from in Plan 3.
+    descriptor_pool: DescriptorPool,
+    /// Cache of GPU pipelines keyed by drawable kind. Populated
+    /// lazily by drawables during recording.
+    pipeline_cache: PipelineCache,
+    /// Vulkan device shared by every render-side resource. Held last
+    /// among the GPU fields so it outlives every child.
+    #[allow(dead_code)]
+    device: Arc<Device>,
     /// Held so the device's parent stays alive at least as long as the
     /// device. The instance is read by no other field directly but the
     /// Vulkan loader requires it to outlive every device.
     #[allow(dead_code)]
     instance: Arc<Instance>,
-    /// Vulkan device shared by every render-side resource.
-    #[allow(dead_code)]
-    device: Arc<Device>,
-    /// Single VkRenderPass used by the clear-only frame loop.
-    render_pass: RenderPass,
-    /// Headless target the frame loop renders into and reads back from.
-    target: HeadlessRenderTarget,
-    /// Per-frame recorder; reused across the loop.
-    recorder: FrameRecorder,
-    /// Camera that frames the scene. Currently held but not yet
-    /// uploaded to the GPU; Plan 3 Task 3 wires `view_proj` into the
-    /// per-frame uniform.
-    #[allow(dead_code)]
-    camera: Camera,
-    /// Timeline of scheduled animations. Owns each `Box<dyn Animation
-    /// + 'anim>` and is dispatched once per frame by
-    /// [`Scene::render`].
-    timeline: Timeline<'anim>,
-    /// Cache of GPU pipelines keyed by drawable kind. Populated
-    /// lazily by drawables during recording.
-    #[allow(dead_code)]
-    pipeline_cache: PipelineCache,
-    /// Per-scene descriptor pool. Plumbed through
-    /// [`crate::scene::FrameContext`] for future drawables; not
-    /// allocated from in Plan 3.
-    ///
-    /// Holds its own `Arc<Device>` clone, so the underlying
-    /// `VkDescriptorPool` is destroyed against a live device whatever
-    /// the field-drop order ends up being.
-    #[allow(dead_code)]
-    descriptor_pool: DescriptorPool,
-    /// Output sink. `None` once `render` has consumed it. `Some` while
-    /// the scene is alive and unrendered, so `Drop` can close it
-    /// gracefully.
-    sink: Option<OutputSink>,
 }
 
 impl<'anim> Scene<'anim> {
     /// Construct a scene from configuration and a camera.
     ///
     /// On success, the Vulkan instance, device, render pass, headless
-    /// render target, frame recorder, and output sink are all live.
-    /// `Output::Mp4` spawns a child `ffmpeg` process; `Output::PngSequence`
-    /// creates the directory if it does not already exist.
+    /// render target, frame recorder, point + line pipelines, point +
+    /// line instance buffers, and output sink are all live.
+    /// `Output::Mp4` spawns a child `ffmpeg` process;
+    /// `Output::PngSequence` creates the directory if it does not
+    /// already exist.
     ///
     /// # Errors
     ///
@@ -142,6 +171,10 @@ impl<'anim> Scene<'anim> {
         let target = HeadlessRenderTarget::new(device.clone(), width, height)?;
         let recorder = FrameRecorder::new(device.clone(), &render_pass, &target)?;
         let descriptor_pool = DescriptorPool::new(device.clone())?;
+        let point_pipeline = PointPipeline::new(device.clone(), &render_pass)?;
+        let line_pipeline = LinePipeline::new(device.clone(), &render_pass)?;
+        let point_buffer = PointInstanceBuffer::new(device.clone(), POINT_INSTANCE_CAPACITY)?;
+        let line_buffer = LineInstanceBuffer::new(device.clone(), LINE_INSTANCE_CAPACITY)?;
 
         let sink = match &config.output {
             Output::Mp4 { path, crf, preset } => {
@@ -168,16 +201,20 @@ impl<'anim> Scene<'anim> {
             fps: config.fps,
             resolution: config.resolution,
             background: config.background,
-            instance,
-            device,
-            render_pass,
-            target,
-            recorder,
             camera,
             timeline: Timeline::new(),
-            pipeline_cache: PipelineCache::new(),
-            descriptor_pool,
             sink: Some(sink),
+            target,
+            recorder,
+            point_buffer,
+            line_buffer,
+            point_pipeline,
+            line_pipeline,
+            render_pass,
+            descriptor_pool,
+            pipeline_cache: PipelineCache::new(),
+            device,
+            instance,
         })
     }
 
@@ -205,14 +242,14 @@ impl<'anim> Scene<'anim> {
         self.timeline.wait(seconds);
     }
 
-    /// Run the frame loop and finalise the output sink.
-    ///
-    /// Frame count is `ceil(timeline.total_run_time() * fps)`. Each
-    /// frame dispatches every still-active timeline entry to its
-    /// `now = frame_index / fps`, then clears + reads back at
-    /// `config.background`. Real drawable rendering lands in Plan 3
-    /// Tasks 4 through 8. Returns the number of frames written to the
+    /// Run the frame loop with no drawables and finalise the output
     /// sink.
+    ///
+    /// Thin wrapper over [`Scene::render_with`] that supplies an empty
+    /// record closure. Frame count is `ceil(total_run_time * fps)`;
+    /// each frame clears the framebuffer to `config.background` and
+    /// reads it back. The result is a monochrome video at the
+    /// configured resolution and fps.
     ///
     /// Consumes `self`; the [`Drop`] impl is a no-op after this call
     /// because the sink has already been finalised.
@@ -222,23 +259,124 @@ impl<'anim> Scene<'anim> {
     /// Returns [`RotorlabError::Render`] on any Vulkan failure during
     /// the loop. Returns [`RotorlabError::Encode`] if writing a frame
     /// to the sink fails or if FFmpeg exits non-zero.
-    pub fn render(mut self) -> Result<u64, RotorlabError> {
+    pub fn render(self) -> Result<u64, RotorlabError> {
+        self.render_with(|_, _| {})
+    }
+
+    /// Run the frame loop with a per-frame record closure and finalise
+    /// the output sink.
+    ///
+    /// Frame count is `ceil(timeline.total_run_time() * fps)`. Each
+    /// frame:
+    ///
+    /// 1. dispatches every still-active timeline entry to its
+    ///    `now = frame_index / fps`,
+    /// 2. clears the per-frame point/line instance accumulators,
+    /// 3. invokes `record_fn(&mut FrameContext, &Camera)` so the
+    ///    caller can populate the accumulators by calling
+    ///    [`Drawable::record`](crate::object::Drawable::record) on
+    ///    each visible drawable,
+    /// 4. uploads the accumulators to the per-scene instance buffers,
+    /// 5. records the clear + line draws + point draws + readback
+    ///    into a single command buffer and submits it,
+    /// 6. forwards the readback bytes to the output sink.
+    ///
+    /// After the loop runs, a single trailing `dispatch_frame` at
+    /// `total_run_time` fires any still-active animation's
+    /// `interpolate(1.0) + finalize` pair without rendering a new
+    /// frame.
+    ///
+    /// `record_fn` is `FnMut` so the caller can carry per-frame state
+    /// (a frame counter, a clone of an `Arc<Mutex<...>>` driven by
+    /// custom animations) across calls.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RotorlabError::Render`] on any Vulkan failure during
+    /// the loop. Returns [`RotorlabError::Encode`] if writing a frame
+    /// to the sink fails or if FFmpeg exits non-zero.
+    pub fn render_with<F>(mut self, mut record_fn: F) -> Result<u64, RotorlabError>
+    where
+        F: FnMut(&mut FrameContext<'_>, &Camera),
+    {
         let total_run_time = self.timeline.total_run_time();
         let total_frames = (total_run_time * self.fps as f32).ceil() as u32;
 
         let (width, height) = self.resolution;
         let mut host = vec![0u8; (width as usize) * (height as usize) * 4];
 
+        // Per-frame accumulators reused across frames. Capacity 64 is
+        // a small heuristic; the Vec grows on push if a busy frame
+        // exceeds it.
+        let mut point_instances = Vec::with_capacity(64);
+        let mut line_instances = Vec::with_capacity(64);
+
+        // Push-constant blocks rebuilt each frame. The view-proj is
+        // currently constant across frames (camera does not animate in
+        // Plan 3) but we recompute it per frame so future per-frame
+        // camera updates land naturally.
+        let view_proj = self.camera.view_proj();
+
         // Invariant: sink is set in `Scene::new` and only taken here.
-        // `render` consumes self, so it cannot be called twice.
+        // `render_with` consumes self, so it cannot be called twice.
         let mut sink = self.sink.take().unwrap();
 
         for f in 0..total_frames {
             let now = f as f32 / self.fps as f32;
             self.timeline.dispatch_frame(now);
-            self.recorder
-                .clear_only(&self.render_pass, &self.target, self.background)
+
+            point_instances.clear();
+            line_instances.clear();
+
+            // Build the FrameContext, hand it to the user record
+            // closure. Drawables push into the two Vecs.
+            {
+                let mut ctx = FrameContext {
+                    cmd_buf: self.recorder.command_buffer,
+                    pipelines: &self.pipeline_cache,
+                    descriptor_pool: &self.descriptor_pool,
+                    point_instances: &mut point_instances,
+                    line_instances: &mut line_instances,
+                };
+                record_fn(&mut ctx, &self.camera);
+            }
+
+            // Upload the accumulators to the per-scene instance
+            // buffers. `upload` updates `len` so the draw call below
+            // picks up the count.
+            self.point_buffer
+                .upload(&point_instances)
                 .map_err(RotorlabError::Render)?;
+            self.line_buffer
+                .upload(&line_instances)
+                .map_err(RotorlabError::Render)?;
+
+            let point_push = PointPushConstants {
+                view_proj,
+                time: now,
+                viewport: [width as f32, height as f32],
+                _pad: 0.0,
+            };
+            let line_push = LinePushConstants {
+                view_proj,
+                viewport: [width as f32, height as f32],
+                _pad: [0.0; 2],
+            };
+
+            self.recorder
+                .render_drawables(
+                    &self.render_pass,
+                    &self.target,
+                    self.background,
+                    &self.point_pipeline,
+                    &self.point_buffer,
+                    &point_push,
+                    &self.line_pipeline,
+                    &self.line_buffer,
+                    &line_push,
+                )
+                .map_err(RotorlabError::Render)?;
+
             self.target
                 .read_to_host(&mut host)
                 .map_err(RotorlabError::Render)?;
@@ -255,10 +393,11 @@ impl<'anim> Scene<'anim> {
             }
         }
 
-        // Drive any still-active animation to alpha == 1.0 so its `finalize`
-        // fires. The frame count is preserved (no extra frame is rendered).
-        // Unconditional so instantaneous animations (run_time == 0.0, total
-        // frames == 0) still receive their interpolate(1.0) + finalize.
+        // Drive any still-active animation to alpha == 1.0 so its
+        // `finalize` fires. The frame count is preserved (no extra
+        // frame is rendered). Unconditional so instantaneous
+        // animations (run_time == 0.0, total frames == 0) still
+        // receive their interpolate(1.0) + finalize.
         self.timeline.dispatch_frame(total_run_time);
 
         match sink {
@@ -295,6 +434,13 @@ impl Drop for Scene<'_> {
         }
     }
 }
+
+/// Marker to keep the [`Drawable`] symbol referenced even when the file
+/// itself does not name a concrete drawable. The cross-references in
+/// the `render_with` doc comment relied on the import; this `_` binding
+/// keeps clippy's `unused_import` lint quiet without a `#[allow]`.
+#[allow(dead_code)]
+const _DRAWABLE_REF: Option<&dyn Drawable> = None;
 
 /// Write one BGRA frame as `dir/frame_NNNNNN.png`.
 ///

@@ -3,10 +3,13 @@
 use crate::error::RenderError;
 use crate::render::command::CommandPool;
 use crate::render::device::Device;
+use crate::render::pipelines::line::{LineInstanceBuffer, LinePipeline, LinePushConstants};
+use crate::render::pipelines::point::{PointInstanceBuffer, PointPipeline, PointPushConstants};
 use crate::render::pipelines::triangle::{TrianglePipeline, TriangleVertexBuffer};
 use crate::render::render_pass::RenderPass;
 use crate::render::render_target::HeadlessRenderTarget;
 use ash::vk;
+use bytemuck::bytes_of;
 use std::sync::Arc;
 
 /// Records and submits one frame of triangle rendering.
@@ -411,6 +414,308 @@ impl FrameRecorder {
         // Step 8: reset the fence to unsignaled for the next render call.
         // Safety: `self.fence` is currently in the signaled state (Step 7
         // returned SUCCESS). Resetting it here makes it safe to reuse.
+        unsafe {
+            self.device
+                .raw
+                .reset_fences(&[self.fence])
+                .map_err(RenderError::Vulkan)?;
+        }
+
+        Ok(())
+    }
+
+    /// Record + submit + wait + copy-to-staging a frame that draws all
+    /// currently-uploaded point and line instances.
+    ///
+    /// The caller is responsible for uploading instance data to
+    /// `point_buffer` and `line_buffer` before invoking this method
+    /// (use [`PointInstanceBuffer::upload`] and
+    /// [`LineInstanceBuffer::upload`]). The number of instances drawn
+    /// per pipeline is taken from `point_buffer.len` and
+    /// `line_buffer.len`. Buffers with `len == 0` are bound but the
+    /// corresponding draw call is skipped.
+    ///
+    /// Push constants are pushed for the full `PointPushConstants` /
+    /// `LinePushConstants` block on each pipeline, visible to vertex
+    /// and fragment stages. Viewport and scissor are bound dynamically
+    /// to the full framebuffer size.
+    ///
+    /// Plan 3 Task 12. Mirrors [`render_triangle`](Self::render_triangle)
+    /// and [`clear_only`](Self::clear_only); only the bind-and-draw
+    /// section differs.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RenderError::Vulkan`] on any underlying ash failure
+    /// (command buffer reset / begin / submit, fence wait / reset).
+    ///
+    /// [`PointInstanceBuffer::upload`]: crate::render::pipelines::point::PointInstanceBuffer::upload
+    /// [`LineInstanceBuffer::upload`]: crate::render::pipelines::line::LineInstanceBuffer::upload
+    #[allow(clippy::too_many_arguments)]
+    pub fn render_drawables(
+        &self,
+        render_pass: &RenderPass,
+        target: &HeadlessRenderTarget,
+        clear_color: [f32; 4],
+        point_pipeline: &PointPipeline,
+        point_buffer: &PointInstanceBuffer,
+        point_push: &PointPushConstants,
+        line_pipeline: &LinePipeline,
+        line_buffer: &LineInstanceBuffer,
+        line_push: &LinePushConstants,
+    ) -> Result<(), RenderError> {
+        // Step 1: reset the command buffer to record fresh commands.
+        // Safety: `self.command_buffer` is a valid primary command buffer
+        // allocated from `self.pool`, and no GPU work referencing it is
+        // in-flight (we wait on `self.fence` after every submission).
+        unsafe {
+            self.device
+                .raw
+                .reset_command_buffer(self.command_buffer, vk::CommandBufferResetFlags::empty())
+                .map_err(RenderError::Vulkan)?;
+        }
+
+        // Step 2: begin recording with ONE_TIME_SUBMIT semantics.
+        let begin_info = vk::CommandBufferBeginInfo::default()
+            .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
+
+        // Safety: `self.command_buffer` is in the initial state after the
+        // reset above. `begin_info` is fully initialised.
+        unsafe {
+            self.device
+                .raw
+                .begin_command_buffer(self.command_buffer, &begin_info)
+                .map_err(RenderError::Vulkan)?;
+        }
+
+        // Step 3: begin the render pass.
+        let clear_values = [vk::ClearValue {
+            color: vk::ClearColorValue {
+                float32: clear_color,
+            },
+        }];
+        let render_area = vk::Rect2D::default()
+            .offset(vk::Offset2D { x: 0, y: 0 })
+            .extent(vk::Extent2D {
+                width: self.width,
+                height: self.height,
+            });
+        let rp_begin = vk::RenderPassBeginInfo::default()
+            .render_pass(render_pass.raw)
+            .framebuffer(self.framebuffer)
+            .render_area(render_area)
+            .clear_values(&clear_values);
+
+        // Safety: `self.command_buffer` is recording. All handles are
+        // valid and belong to the same device.
+        unsafe {
+            self.device.raw.cmd_begin_render_pass(
+                self.command_buffer,
+                &rp_begin,
+                vk::SubpassContents::INLINE,
+            );
+        }
+
+        // Step 4: bind dynamic viewport + scissor (matches the dynamic
+        // state declared by both PointPipeline and LinePipeline).
+        let viewport = vk::Viewport {
+            x: 0.0,
+            y: 0.0,
+            width: self.width as f32,
+            height: self.height as f32,
+            min_depth: 0.0,
+            max_depth: 1.0,
+        };
+        let scissor = vk::Rect2D::default()
+            .offset(vk::Offset2D { x: 0, y: 0 })
+            .extent(vk::Extent2D {
+                width: self.width,
+                height: self.height,
+            });
+        // Safety: `self.command_buffer` is recording. Viewport and
+        // scissor are valid for the framebuffer size.
+        unsafe {
+            self.device
+                .raw
+                .cmd_set_viewport(self.command_buffer, 0, &[viewport]);
+            self.device
+                .raw
+                .cmd_set_scissor(self.command_buffer, 0, &[scissor]);
+        }
+
+        // Step 5: bind the line pipeline first (lines are drawn behind
+        // points in the absence of explicit z-ordering), push its
+        // constants, bind its instance buffer, and draw.
+        if line_buffer.len > 0 {
+            // Safety: `self.command_buffer` is inside the render pass
+            // subpass that the pipeline was created for. `line_pipeline.raw`
+            // is a valid VkPipeline.
+            unsafe {
+                self.device.raw.cmd_bind_pipeline(
+                    self.command_buffer,
+                    vk::PipelineBindPoint::GRAPHICS,
+                    line_pipeline.raw,
+                );
+            }
+            // Safety: `line_pipeline.layout` is the layout the pipeline
+            // was built with. `bytes_of(line_push)` produces a tightly
+            // packed byte slice of exactly `size_of::<LinePushConstants>()`
+            // bytes, matching the push-constant range declared at layout
+            // creation time.
+            unsafe {
+                self.device.raw.cmd_push_constants(
+                    self.command_buffer,
+                    line_pipeline.layout,
+                    vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
+                    0,
+                    bytes_of(line_push),
+                );
+            }
+            // Safety: `line_buffer.buffer` is a valid VERTEX_BUFFER-capable
+            // VkBuffer. The pipeline expects a single per-instance binding
+            // at slot 0, stride `size_of::<LineInstance>()`.
+            unsafe {
+                self.device.raw.cmd_bind_vertex_buffers(
+                    self.command_buffer,
+                    0,
+                    &[line_buffer.buffer],
+                    &[0],
+                );
+            }
+            // Safety: 4 vertices per instance (TRIANGLE_STRIP corners
+            // emitted via gl_VertexIndex), `line_buffer.len` instances
+            // populated by the most recent `upload`.
+            unsafe {
+                self.device
+                    .raw
+                    .cmd_draw(self.command_buffer, 4, line_buffer.len, 0, 0);
+            }
+        }
+
+        // Step 6: bind the point pipeline, push its constants, bind
+        // its instance buffer, and draw.
+        if point_buffer.len > 0 {
+            // Safety: same as the line pipeline bind; the point pipeline
+            // was created against the same render pass.
+            unsafe {
+                self.device.raw.cmd_bind_pipeline(
+                    self.command_buffer,
+                    vk::PipelineBindPoint::GRAPHICS,
+                    point_pipeline.raw,
+                );
+            }
+            // Safety: same shape as the line push above; `point_pipeline.layout`
+            // is the layout the pipeline was built with, and the byte slice
+            // exactly matches the declared push-constant range size.
+            unsafe {
+                self.device.raw.cmd_push_constants(
+                    self.command_buffer,
+                    point_pipeline.layout,
+                    vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
+                    0,
+                    bytes_of(point_push),
+                );
+            }
+            // Safety: same shape as the line bind; the point pipeline
+            // expects a single per-instance binding at slot 0.
+            unsafe {
+                self.device.raw.cmd_bind_vertex_buffers(
+                    self.command_buffer,
+                    0,
+                    &[point_buffer.buffer],
+                    &[0],
+                );
+            }
+            // Safety: 4 vertices per instance (TRIANGLE_STRIP billboard
+            // corners), `point_buffer.len` instances.
+            unsafe {
+                self.device
+                    .raw
+                    .cmd_draw(self.command_buffer, 4, point_buffer.len, 0, 0);
+            }
+        }
+
+        // Step 7: end the render pass. The render pass's final_layout
+        // for the color attachment is TRANSFER_SRC_OPTIMAL, so the
+        // driver transitions the image automatically.
+        // Safety: we are inside a render pass subpass; this ends it
+        // correctly.
+        unsafe {
+            self.device.raw.cmd_end_render_pass(self.command_buffer);
+        }
+
+        // Step 8: copy the image into the staging buffer.
+        let region = vk::BufferImageCopy::default()
+            .buffer_offset(0)
+            .buffer_row_length(0)
+            .buffer_image_height(0)
+            .image_subresource(
+                vk::ImageSubresourceLayers::default()
+                    .aspect_mask(vk::ImageAspectFlags::COLOR)
+                    .mip_level(0)
+                    .base_array_layer(0)
+                    .layer_count(1),
+            )
+            .image_offset(vk::Offset3D { x: 0, y: 0, z: 0 })
+            .image_extent(vk::Extent3D {
+                width: self.width,
+                height: self.height,
+                depth: 1,
+            });
+
+        // Safety: `target.image` is in TRANSFER_SRC_OPTIMAL layout (set
+        // by the render pass final_layout). `target.staging_buffer` is
+        // a valid TRANSFER_DST buffer large enough to hold
+        // `width * height * 4` bytes.
+        unsafe {
+            self.device.raw.cmd_copy_image_to_buffer(
+                self.command_buffer,
+                target.image,
+                vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+                target.staging_buffer,
+                &[region],
+            );
+        }
+
+        // Step 9: end recording.
+        // Safety: all commands have been recorded; no render pass is
+        // active.
+        unsafe {
+            self.device
+                .raw
+                .end_command_buffer(self.command_buffer)
+                .map_err(RenderError::Vulkan)?;
+        }
+
+        // Step 10: submit the command buffer to the graphics queue.
+        let command_buffers = [self.command_buffer];
+        let submit = vk::SubmitInfo::default().command_buffers(&command_buffers);
+
+        // Safety: `self.device.graphics_queue` is the device's graphics
+        // queue. `self.fence` is unsignaled (we reset it after every
+        // wait below). The command buffer is fully recorded and
+        // references only valid handles.
+        unsafe {
+            self.device
+                .raw
+                .queue_submit(self.device.graphics_queue, &[submit], self.fence)
+                .map_err(RenderError::Vulkan)?;
+        }
+
+        // Step 11: wait for the GPU to finish.
+        // Safety: `self.fence` was submitted to the queue in Step 10.
+        // `u64::MAX` is effectively an infinite timeout.
+        unsafe {
+            self.device
+                .raw
+                .wait_for_fences(&[self.fence], true, u64::MAX)
+                .map_err(RenderError::Vulkan)?;
+        }
+
+        // Step 12: reset the fence to unsignaled for the next render
+        // call.
+        // Safety: `self.fence` is currently in the signaled state
+        // (Step 11 returned SUCCESS).
         unsafe {
             self.device
                 .raw
