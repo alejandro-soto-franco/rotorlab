@@ -98,20 +98,51 @@ pub struct Camera {
 }
 
 impl Camera {
+    /// Build a camera that looks from `eye` toward `target` with a default
+    /// perspective projection (`fov_y = π/3`, `aspect = 16/9`, `near = 0.1`,
+    /// `far = 100`).
+    ///
+    /// This is the perspective-default one-liner; for orthographic or any
+    /// non-default perspective frustum, use
+    /// [`look_at_with_projection`](Self::look_at_with_projection).
+    ///
+    /// If `eye == target` or `up` is parallel to `target - eye`, the
+    /// resulting motor is degenerate but the function still returns;
+    /// callers are expected to pass a sensible frame.
+    pub fn look_at(eye: Point, target: Point, up: [f32; 3]) -> Self {
+        Self::look_at_with_projection(
+            eye,
+            target,
+            up,
+            Projection::Perspective {
+                fov_y: std::f32::consts::FRAC_PI_3,
+                aspect: 16.0 / 9.0,
+                near: 0.1,
+                far: 100.0,
+            },
+        )
+    }
+
     /// Build a camera that looks from `eye` toward `target`, with the
     /// world-space up direction `up` (need not be normalized; the
-    /// component perpendicular to `forward` is used).
+    /// component perpendicular to `forward` is used) and the supplied
+    /// projection.
     ///
     /// The returned camera's motor places the canonical camera (at the
     /// origin, looking down `-Z`, with `+Y` up) at `eye` so that its
-    /// forward direction points from `eye` to `target`.
+    /// forward direction points from `eye` to `target`. The caller picks
+    /// the projection, so this entry point works for both perspective and
+    /// orthographic cameras.
     ///
-    /// # Panics
-    ///
-    /// Does not panic. If `eye == target` or `up` is parallel to
-    /// `target - eye`, the resulting motor is degenerate but the function
-    /// still returns; callers are expected to pass a sensible frame.
-    pub fn look_at(eye: Point, target: Point, up: [f32; 3]) -> Self {
+    /// If `eye == target` or `up` is parallel to `target - eye`, the
+    /// resulting motor is degenerate but the function still returns;
+    /// callers are expected to pass a sensible frame.
+    pub fn look_at_with_projection(
+        eye: Point,
+        target: Point,
+        up: [f32; 3],
+        projection: Projection,
+    ) -> Self {
         let eye_e = point_to_euclidean(&eye.0);
         let target_e = point_to_euclidean(&target.0);
         let mut forward = sub3(target_e, eye_e);
@@ -140,12 +171,7 @@ impl Camera {
 
         Self {
             motor,
-            projection: Projection::Perspective {
-                fov_y: std::f32::consts::FRAC_PI_3,
-                aspect: 16.0 / 9.0,
-                near: 0.1,
-                far: 100.0,
-            },
+            projection,
             clear_color: [0.0, 0.0, 0.0, 1.0],
         }
     }
@@ -213,7 +239,7 @@ impl Camera {
     /// returning a new camera with the rotated pose.
     ///
     /// The rotation is applied in world space: the new motor is
-    /// `rotor(axis, angle) * self.motor`.
+    /// `rotor(axis, angle).compose(&self.motor)`.
     pub fn orbit(&self, axis: Line, angle: f32) -> Self {
         let r = pga3::rotor(Bivector(axis.0), angle);
         let new_motor = r.0.compose(&self.motor);
@@ -295,7 +321,7 @@ fn build_translator(tx: f32, ty: f32, tz: f32) -> Motor {
     // `translator_moves_origin_to_offset`, `look_at_places_camera_at_eye`,
     // and `dolly_moves_camera_along_forward`.
     let mut mv: Multivector<Pga3> = Multivector::zero();
-    mv.set(0, 1.0);
+    mv.set(0, 1.0); // scalar part
     mv.set(E_01, -0.5 * tx);
     mv.set(E_02, 0.5 * ty);
     mv.set(E_03, -0.5 * tz);
@@ -355,6 +381,7 @@ fn matrix_to_rotor(r0: [f32; 3], r1: [f32; 3], r2: [f32; 3]) -> Motor {
     let mut mv: Multivector<Pga3> = Multivector::zero();
     mv.set(0, w);
     mv.set(E_23, x);
+    // negate y to match e_13 sign convention; see function header
     mv.set(E_13, -y);
     mv.set(E_12, z);
     Motor(mv)
@@ -465,14 +492,10 @@ mod tests {
             }
             *out_cell = s;
         }
-        // x passes through, y is flipped, z is mapped to [0, 1].
-        // For near = 0, far = 1, Z mapping: clip_z = z * (1/(0-1)) + 0/(0-1) = -z.
-        // Since the camera looks down -Z, view-space z = 0.5 means a point
-        // half a unit *behind* the eye in the -Z direction would have view
-        // space z = -0.5. Here we are testing the matrix arithmetic only,
-        // so we accept whatever the formula yields and pin it.
+        // x passes through, y is flipped, z is mapped via [0, 0, -1, 0].
         assert!(approx_eq(out[0], 0.3, 1e-6), "x: {}", out[0]);
         assert!(approx_eq(out[1], -0.4, 1e-6), "y: {}", out[1]);
+        assert!(approx_eq(out[2], -0.5, 1e-6), "z: {}", out[2]);
         assert!(approx_eq(out[3], 1.0, 1e-6), "w: {}", out[3]);
     }
 
@@ -536,9 +559,7 @@ mod tests {
             },
             clear_color: [0.0; 4],
         };
-        // Build a line: the world Z axis (e12 bivector encodes it as the
-        // dual rotation axis, but for the orbit sanity test any line is
-        // fine since the angle is zero).
+        // any line works because angle is zero.
         let mut line_mv: Multivector<Pga3> = Multivector::zero();
         line_mv.set(E_12, 1.0);
         let axis = Line(line_mv);
@@ -562,6 +583,27 @@ mod tests {
         let dollied = cam.dolly(0.0);
         let v = dollied.view_matrix();
         assert_mat_eq(&v, &identity_mat4(), 1e-5);
+    }
+
+    #[test]
+    fn look_at_with_projection_uses_supplied_projection() {
+        // Pins that look_at_with_projection actually carries the supplied
+        // projection through to the constructed camera (rather than always
+        // defaulting to perspective).
+        let eye = pga3::point(2.0, 3.0, 5.0);
+        let target = pga3::point(0.0, 0.0, 0.0);
+        let cam = Camera::look_at_with_projection(
+            eye,
+            target,
+            [0.0, 1.0, 0.0],
+            Projection::Orthographic {
+                half_width: 1.0,
+                half_height: 1.0,
+                near: 0.0,
+                far: 1.0,
+            },
+        );
+        assert!(matches!(cam.projection, Projection::Orthographic { .. }));
     }
 
     #[test]
