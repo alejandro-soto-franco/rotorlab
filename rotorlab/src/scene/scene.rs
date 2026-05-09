@@ -255,6 +255,13 @@ impl<'anim> Scene<'anim> {
             }
         }
 
+        // Drive any still-active animation to alpha == 1.0 so its `finalize`
+        // fires. The frame count is preserved (no extra frame is rendered);
+        // only the timeline cursor advances.
+        if total_frames > 0 {
+            self.timeline.dispatch_frame(total_run_time);
+        }
+
         match sink {
             OutputSink::Mp4(enc) => enc.finish().map_err(RotorlabError::Encode),
             OutputSink::PngSequence { frames_written, .. } => Ok(frames_written),
@@ -417,11 +424,14 @@ mod tests {
 
     /// Test stub used by the Scene-level dispatch tests below. Records
     /// every alpha it observes so the test can assert the trace shape
-    /// produced by the frame loop. Mirrors the in-module
-    /// `AlphaTrace` from [`crate::animation::timeline`] tests but
-    /// re-declared here so the visibility surface stays clean.
+    /// produced by the frame loop, and counts `finalize` calls so the
+    /// post-loop alpha-1.0 dispatch can be observed. Mirrors the
+    /// in-module `AlphaTrace` from [`crate::animation::timeline`]
+    /// tests but re-declared here so the visibility surface stays
+    /// clean.
     struct SceneAlphaTrace {
         calls: std::sync::Arc<std::sync::Mutex<Vec<f32>>>,
+        finalize_count: std::sync::Arc<std::sync::atomic::AtomicUsize>,
         run_time: f32,
     }
 
@@ -434,6 +444,10 @@ mod tests {
         }
         fn interpolate(&mut self, alpha: f32) {
             self.calls.lock().unwrap().push(alpha);
+        }
+        fn finalize(&mut self) {
+            self.finalize_count
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         }
     }
 
@@ -472,8 +486,10 @@ mod tests {
             return;
         };
         let calls = std::sync::Arc::new(std::sync::Mutex::new(Vec::<f32>::new()));
+        let finalize_count = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let trace = SceneAlphaTrace {
             calls: calls.clone(),
+            finalize_count: finalize_count.clone(),
             run_time: 1.0,
         };
         scene.play([Box::new(trace) as Box<dyn crate::animation::Animation>]);
@@ -481,15 +497,20 @@ mod tests {
         // small_png_config picks 30 fps, run_time=1.0 -> 30 frames.
         assert_eq!(n, 30);
         let observed = calls.lock().unwrap().clone();
-        assert_eq!(observed.len(), 30);
+        // 30 in-loop interpolate calls (frame indices 0..30 at now =
+        // f/30) plus one post-loop dispatch at now = total_run_time
+        // that drives alpha to 1.0 and triggers finalize.
+        assert_eq!(observed.len(), 31);
         assert!((observed[0] - 0.0).abs() < 1e-6);
-        // Last frame's alpha is 29/30 (linear ease, frame index f goes
-        // 0..30, now = f/30, raw = (f/30) / 1.0 = f/30; the f == 30
-        // tick is excluded because total_frames == 30).
         let last = *observed.last().unwrap();
         assert!(
-            (last - (29.0_f32 / 30.0)).abs() < 1e-6,
-            "expected last alpha ~= 29/30, got {last}",
+            (last - 1.0).abs() < 1e-6,
+            "expected last alpha == 1.0, got {last}",
+        );
+        assert_eq!(
+            finalize_count.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "expected finalize to fire exactly once",
         );
     }
 }
