@@ -29,9 +29,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libvulkan1 vulkan-tools mesa-vulkan-drivers ffmpeg
 
+      - name: Locate lavapipe ICD and export VK_ICD_FILENAMES
+        run: |
+          icd=$(sudo find /usr /etc -name 'lvp_icd*.json' 2>/dev/null | head -n1)
+          test -n "$icd" || { echo "lavapipe ICD JSON not found"; exit 1; }
+          echo "Found lavapipe ICD at $icd"
+          echo "VK_ICD_FILENAMES=$icd" >> "$GITHUB_ENV"
+
       - name: Verify Vulkan loader sees lavapipe
-        env:
-          VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/lvp_icd.x86_64.json
         run: vulkaninfo --summary | head -30
 
       - name: Cargo fmt
@@ -41,8 +46,6 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Cargo test
-        env:
-          VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/lvp_icd.x86_64.json
         run: cargo test --workspace
 
       - name: Cargo doc
