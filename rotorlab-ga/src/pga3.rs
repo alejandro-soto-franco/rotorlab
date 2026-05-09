@@ -100,6 +100,29 @@ pub fn point(x: f32, y: f32, z: f32) -> Point {
     Point(mv)
 }
 
+impl Point {
+    /// Convert this PGA3 point to Euclidean `(x, y, z)` by dividing the
+    /// trivector coefficients on `e_023`, `e_013`, `e_012` by the
+    /// homogeneous weight on `e_123`.
+    ///
+    /// Returns `[0.0, 0.0, 0.0]` for points whose weight has absolute
+    /// value below `1e-12` (these represent points at projective
+    /// infinity, where the affine `(x, y, z)` is undefined). Callers
+    /// that need to distinguish a true origin from a degenerate point
+    /// should inspect the underlying [`Multivector`] directly.
+    pub fn to_euclidean(&self) -> [f32; 3] {
+        let w = self.0.get(0b0111);
+        if w.abs() < 1e-12 {
+            return [0.0, 0.0, 0.0];
+        }
+        [
+            self.0.get(0b1110) / w,
+            self.0.get(0b1101) / w,
+            self.0.get(0b1011) / w,
+        ]
+    }
+}
+
 /// Construct the line through two PGA3 points (`p ∨ q`).
 ///
 /// Implements the regressive product `a ∨ b = J⁻¹(J(a) ∧ J(b))` using the
@@ -167,4 +190,46 @@ pub fn translator(direction: Bivector, distance: f32) -> Translator {
         }
     }
     Translator(Motor(mv))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::multivector::Multivector;
+
+    #[test]
+    fn to_euclidean_unit_weight_round_trips() {
+        let p = point(2.0, 3.0, 4.0);
+        let xyz = p.to_euclidean();
+        assert!((xyz[0] - 2.0).abs() < 1e-6);
+        assert!((xyz[1] - 3.0).abs() < 1e-6);
+        assert!((xyz[2] - 4.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn to_euclidean_non_unit_weight_normalizes() {
+        // A point with weight 2 carrying coefficients (4, 6, 8) is the same
+        // projective point as the unit-weight point (2, 3, 4).
+        let mut mv: Multivector<Pga3> = Multivector::zero();
+        mv.set(0b0111, 2.0);
+        mv.set(0b1110, 4.0);
+        mv.set(0b1101, 6.0);
+        mv.set(0b1011, 8.0);
+        let p = Point(mv);
+        let xyz = p.to_euclidean();
+        assert!((xyz[0] - 2.0).abs() < 1e-6);
+        assert!((xyz[1] - 3.0).abs() < 1e-6);
+        assert!((xyz[2] - 4.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn to_euclidean_infinity_returns_zeros() {
+        // A direction (zero weight) is a point at projective infinity; we
+        // collapse it to the affine origin to avoid producing NaNs.
+        let mut mv: Multivector<Pga3> = Multivector::zero();
+        mv.set(0b1110, 1.0);
+        let p = Point(mv);
+        let xyz = p.to_euclidean();
+        assert_eq!(xyz, [0.0, 0.0, 0.0]);
+    }
 }

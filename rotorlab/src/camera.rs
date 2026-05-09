@@ -27,13 +27,6 @@ use rotorlab_ga::motor::Motor;
 use rotorlab_ga::multivector::Multivector;
 use rotorlab_ga::pga3::{self, Bivector, Line, Pga3, Point};
 
-// Bitmask indices for the trivector basis blades that store the Euclidean
-// coordinates of a PGA3 point. See `rotorlab_ga::pga3::point`.
-const E_123: usize = 0b0111; // homogeneous weight (= 1 for normalized points)
-const E_023: usize = 0b1110; // x coefficient
-const E_013: usize = 0b1101; // y coefficient
-const E_012: usize = 0b1011; // z coefficient
-
 // Bitmask indices for the bivector basis blades used to build translators.
 const E_01: usize = 0b1001; // translation along x
 const E_02: usize = 0b1010; // translation along y
@@ -303,12 +296,11 @@ fn motor_to_mat4(m: &Motor) -> [[f32; 4]; 4] {
 }
 
 fn point_to_euclidean(mv: &Multivector<Pga3>) -> [f32; 3] {
-    let w = mv.get(E_123);
-    if w.abs() < 1e-12 {
-        // Point at infinity or degenerate; return zero rather than NaN.
-        return [0.0, 0.0, 0.0];
-    }
-    [mv.get(E_023) / w, mv.get(E_013) / w, mv.get(E_012) / w]
+    // Thin shim around `pga3::Point::to_euclidean` for the camera's
+    // raw-multivector call sites (the result of `motor.apply` is a
+    // `Multivector<Pga3>`, not a typed `Point`). The two functions
+    // share the same near-zero-weight guard and blade indices.
+    Point(*mv).to_euclidean()
 }
 
 fn build_translator(tx: f32, ty: f32, tz: f32) -> Motor {
