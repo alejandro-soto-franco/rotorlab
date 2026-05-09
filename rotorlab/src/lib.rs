@@ -9,4 +9,4 @@ pub mod encode;
 pub mod error;
 pub mod render;
 
-// pub use error::{EncodeError, RenderError, RotorlabError};
+pub use error::{EncodeError, RenderError, RotorlabError};
