@@ -55,6 +55,12 @@ impl Motor {
     /// below `1e-6`), the result is `self` to avoid a `0/0` in the
     /// `sin/|bivec|` factor.
     ///
+    /// Shortest-path: rotors `r` and `-r` represent the same SO(3)
+    /// element (the double cover). When the relative rotor's scalar
+    /// part is negative (encoding a > pi rotation), the implementation
+    /// negates the representative so SLERP traverses the short geodesic
+    /// rather than the long one.
+    ///
     /// Translator and screw-motor SLERP are deferred to a later release;
     /// passing motors with non-zero `e0`-bearing blades will produce a
     /// rotor-only approximation.
@@ -68,6 +74,20 @@ impl Motor {
         let b12 = r.get(0b0011);
         let b13 = r.get(0b0101);
         let b23 = r.get(0b0110);
+        // Double-cover shortest-path fix: rotors r and -r encode the same
+        // SO(3) element, but `atan2(|bivec|, w)` returns a half-angle in
+        // [0, pi]. Picking the representative with w >= 0 forces SLERP to
+        // take the short way around. Without this, a relative rotor whose
+        // raw scalar is clearly negative (encoding a > pi rotation)
+        // traverses the long way. The threshold (-1e-6) keeps floating
+        // point noise around w == 0 from arbitrarily flipping the
+        // direction at the half-turn boundary, where both representatives
+        // are geodesic-equivalent.
+        let (w, b12, b13, b23) = if w < -1e-6 {
+            (-w, -b12, -b13, -b23)
+        } else {
+            (w, b12, b13, b23)
+        };
         let bivec_norm = (b12 * b12 + b13 * b13 + b23 * b23).sqrt();
 
         // If the relative rotor is (numerically) the identity, log is zero
@@ -149,6 +169,33 @@ mod tests {
         assert!(xyz[0].abs() < 1e-4, "x: {}", xyz[0]);
         assert!((xyz[1] - 1.0).abs() < 1e-4, "y: {}", xyz[1]);
         assert!(xyz[2].abs() < 1e-4, "z: {}", xyz[2]);
+    }
+
+    #[test]
+    fn interpolate_takes_shortest_path_around_double_cover() {
+        // A rotor by 1.5*pi around z has raw scalar cos(0.75*pi) < 0, the long
+        // way around. The shortest-path fix negates the rotor representative
+        // before SLERP, so the midpoint should rotate (1,0,0) by -pi/4 (the
+        // short way), landing at (cos(-pi/4), sin(-pi/4), 0). Without the fix
+        // the midpoint would land at the long-way (-cos(pi/4), sin(pi/4), 0).
+        let m_a = Motor::identity();
+        let m_b = pga3::rotor(z_axis_bivector(), 1.5 * core::f32::consts::PI).0;
+        let m = m_a.interpolate(&m_b, 0.5);
+        let test_point = pga3::point(1.0, 0.0, 0.0);
+        let rotated = pga3::Point(m.apply(&test_point.0));
+        let xyz = rotated.to_euclidean();
+        let inv_sqrt2 = 1.0 / 2.0_f32.sqrt();
+        assert!(
+            (xyz[0] - inv_sqrt2).abs() < 1e-4,
+            "x: {} (long-way bug if negative)",
+            xyz[0]
+        );
+        assert!(
+            (xyz[1] + inv_sqrt2).abs() < 1e-4,
+            "y: {} (long-way bug if positive)",
+            xyz[1]
+        );
+        assert!(xyz[2].abs() < 1e-4);
     }
 
     #[test]
