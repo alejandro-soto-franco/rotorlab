@@ -3,18 +3,18 @@
 //! An animation is a stateful object that mutates a target between two
 //! visual states over a fixed wall-clock duration. It exposes:
 //!
-//! * `run_time()` — the duration in seconds the [`Timeline`](crate::animation::Timeline)
+//! * `run_time()`: the duration in seconds the [`Timeline`](crate::animation::Timeline)
 //!   should allocate to this animation.
-//! * `rate_func()` — the easing curve applied to the raw `[0, 1]` parameter
+//! * `rate_func()`: the easing curve applied to the raw `[0, 1]` parameter
 //!   before it reaches `interpolate`. Defaults to [`RateFunc::Smootherstep`].
-//! * `lag_ratio()` — fraction of the run time staggered onto child animations
+//! * `lag_ratio()`: fraction of the run time staggered onto child animations
 //!   when this object is itself a composite. Defaults to `0.0`, meaning all
 //!   children animate in lock-step.
-//! * `interpolate(&mut self, alpha)` — the workhorse, called every frame with
+//! * `interpolate(&mut self, alpha)`: the workhorse, called every frame with
 //!   `alpha` already passed through the rate function and clamped to
 //!   `[0, 1]`. Animations are stateful (`&mut self`) so they may cache the
 //!   start state on the first call.
-//! * `finalize(&mut self)` — invoked once after the final `interpolate(1.0)`
+//! * `finalize(&mut self)`: invoked once after the final `interpolate(1.0)`
 //!   call. Default no-op; stock animations override it to release caches or
 //!   commit state changes that should outlive the animation.
 
