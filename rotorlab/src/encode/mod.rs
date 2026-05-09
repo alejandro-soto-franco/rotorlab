@@ -1,1 +1,5 @@
-//! placeholder; filled in by subsequent tasks
+//! Video encoders.
+
+pub mod ffmpeg;
+
+pub use ffmpeg::FfmpegEncoder;
