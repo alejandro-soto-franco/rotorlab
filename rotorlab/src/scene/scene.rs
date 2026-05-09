@@ -256,11 +256,10 @@ impl<'anim> Scene<'anim> {
         }
 
         // Drive any still-active animation to alpha == 1.0 so its `finalize`
-        // fires. The frame count is preserved (no extra frame is rendered);
-        // only the timeline cursor advances.
-        if total_frames > 0 {
-            self.timeline.dispatch_frame(total_run_time);
-        }
+        // fires. The frame count is preserved (no extra frame is rendered).
+        // Unconditional so instantaneous animations (run_time == 0.0, total
+        // frames == 0) still receive their interpolate(1.0) + finalize.
+        self.timeline.dispatch_frame(total_run_time);
 
         match sink {
             OutputSink::Mp4(enc) => enc.finish().map_err(RotorlabError::Encode),
