@@ -4,10 +4,10 @@
 //!
 //! Each [`Line`] carries two PGA3 endpoints and a [`Stroke`].
 //! [`Drawable::record`] converts the line into a
-//! [`LineInstance`](crate::render::pipelines::LineInstance) ready for
+//! [`LineInstance`] ready for
 //! upload to the pipeline's instance buffer. The actual command-buffer
 //! recording is wired in Plan 3 Tasks 11-12 once
-//! [`FrameContext`](crate::scene::FrameContext) exposes an
+//! [`FrameContext`] exposes an
 //! instance-buffer staging API; Task 7 ships the geometry-to-GPU
 //! conversion only.
 //!

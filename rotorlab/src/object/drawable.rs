@@ -5,7 +5,7 @@
 //! [`Scene::render`](crate::scene::Scene) by calling
 //! [`Drawable::record`] with a [`FrameContext`] (the command buffer +
 //! pipeline cache + descriptor pool) and the active
-//! [`Camera`](crate::camera::Camera). Plan 3 ships only the trait and
+//! [`Camera`]. Plan 3 ships only the trait and
 //! its bounds type; concrete drawables (point, line, plane) follow in
 //! Plan 3 Tasks 5, 7, and 8.
 

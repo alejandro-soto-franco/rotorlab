@@ -3,7 +3,7 @@
 //!
 //! Each [`Point`] carries a PGA3 position, a [`Color`], and a
 //! screen-pixel radius. [`Drawable::record`] converts the point into a
-//! [`PointInstance`](crate::render::pipelines::PointInstance) ready for
+//! [`PointInstance`] ready for
 //! upload to the pipeline's instance buffer. The actual command-buffer
 //! recording (`cmd_bind_pipeline` + `cmd_draw`) is wired in Plan 3
 //! Tasks 11-12 once [`FrameContext`] exposes an instance-buffer staging
@@ -11,7 +11,7 @@
 //!
 //! The `radius` field lives in screen-space pixels (constant size on
 //! screen regardless of camera distance), matching the Manim-style
-//! convention used by the upstream [`PointPipeline`].
+//! convention used by the upstream [`PointPipeline`](crate::render::pipelines::PointPipeline).
 
 use crate::camera::Camera;
 use crate::object::capability::{HasOpacity, Rotatable, Translatable};

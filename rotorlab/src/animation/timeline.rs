@@ -1,7 +1,7 @@
 //! Timeline of animations driving a [`Scene`](crate::scene::Scene).
 //!
-//! The [`Timeline`] is the per-[`Scene`] scheduler that owns
-//! [`Animation`](crate::animation::Animation) trait objects, advances a
+//! The [`Timeline`] is the per-[`Scene`](crate::scene::Scene) scheduler that owns
+//! [`Animation`] trait objects, advances a
 //! global cursor through `play` and `wait`, and dispatches per-frame
 //! `interpolate` and `finalize` calls during
 //! [`Scene::render`](crate::scene::Scene::render).

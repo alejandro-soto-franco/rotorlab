@@ -90,7 +90,7 @@ enum OutputSink {
 /// Field-drop order matters: Vulkan handles must be torn down before
 /// the [`Device`] that created them. Rust drops fields in declaration
 /// order, so the per-frame resources are listed before
-/// [`device`](Self::device) and [`instance`](Self::instance).
+/// `device` and `instance`.
 pub struct Scene<'anim> {
     /// Frames-per-second for the output stream.
     fps: u32,
@@ -274,7 +274,7 @@ impl<'anim> Scene<'anim> {
     /// 2. clears the per-frame point/line instance accumulators,
     /// 3. invokes `record_fn(&mut FrameContext, &Camera)` so the
     ///    caller can populate the accumulators by calling
-    ///    [`Drawable::record`](crate::object::Drawable::record) on
+    ///    [`Drawable::record`] on
     ///    each visible drawable,
     /// 4. uploads the accumulators to the per-scene instance buffers,
     /// 5. records the clear + line draws + point draws + readback
