@@ -272,7 +272,7 @@ fn run_demo_once() -> RenderState {
 
         let rotor_z = pga3::rotor(z_axis_bivector(), s.rotation_z);
         let rotor_obl = pga3::rotor(oblique_axis_bivector(), s.rotation_oblique);
-        let combined: Motor = rotor_obl.0.compose(&rotor_z.0);
+        let combined: Motor<Pga3> = rotor_obl.0.compose(&rotor_z.0);
 
         let pt = |xyz: [f32; 3]| -> pga3::Point {
             let p = pga3::point(xyz[0], xyz[1], xyz[2]);

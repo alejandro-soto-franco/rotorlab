@@ -191,7 +191,7 @@ use crate::motor::{Motor, Rotor, Translator};
 ///
 /// Computes `exp(angle/2 * B) = cos(angle/2) + sin(angle/2) * B` for a
 /// normalised Euclidean bivector `B` (i.e. `B^2 = -1`).
-pub fn rotor(plane: Bivector, angle: f32) -> Rotor {
+pub fn rotor(plane: Bivector, angle: f32) -> Rotor<Pga3> {
     let half = angle * 0.5;
     let mut mv: Multivector<Pga3> = Multivector::zero();
     mv.set(0, half.cos());
@@ -209,7 +209,7 @@ pub fn rotor(plane: Bivector, angle: f32) -> Rotor {
 /// bivector `direction` (a bivector containing `e0`).
 ///
 /// Computes `exp(distance/2 * T) = 1 + distance/2 * T` because `T^2 = 0`.
-pub fn translator(direction: Bivector, distance: f32) -> Translator {
+pub fn translator(direction: Bivector, distance: f32) -> Translator<Pga3> {
     let half = distance * 0.5;
     let mut mv: Multivector<Pga3> = Multivector::zero();
     mv.set(0, 1.0);

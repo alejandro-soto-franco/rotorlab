@@ -83,7 +83,7 @@ pub enum Projection {
 #[derive(Copy, Clone)]
 pub struct Camera {
     /// Camera-to-world rigid motion.
-    pub motor: Motor,
+    pub motor: Motor<Pga3>,
     /// Projection mode.
     pub projection: Projection,
     /// RGBA clear color used when this camera renders a frame.
@@ -276,7 +276,7 @@ impl Camera {
 // is constructed from PGA data.
 // ============================================================================
 
-fn motor_to_mat4(m: &Motor) -> [[f32; 4]; 4] {
+fn motor_to_mat4(m: &Motor<Pga3>) -> [[f32; 4]; 4] {
     let p0 = m.apply(&pga3::point(0.0, 0.0, 0.0).0);
     let px = m.apply(&pga3::point(1.0, 0.0, 0.0).0);
     let py = m.apply(&pga3::point(0.0, 1.0, 0.0).0);
@@ -303,7 +303,7 @@ fn point_to_euclidean(mv: &Multivector<Pga3>) -> [f32; 3] {
     Point(*mv).to_euclidean()
 }
 
-fn build_translator(tx: f32, ty: f32, tz: f32) -> Motor {
+fn build_translator(tx: f32, ty: f32, tz: f32) -> Motor<Pga3> {
     // A PGA3 translator that maps the canonical origin to the Euclidean
     // point `(tx, ty, tz)` under `Motor::apply`. The per-axis half-coefficients
     // below are derived empirically from the geometric-product Cayley table
@@ -334,7 +334,7 @@ fn build_translator(tx: f32, ty: f32, tz: f32) -> Motor {
 // `look_at(eye, target, up).motor.apply(origin) == eye` and
 // `look_at(eye, target, up).motor.apply(canonical_forward) == eye - target`
 // to working precision. They are pinned by the look_at sanity tests below.
-fn matrix_to_rotor(r0: [f32; 3], r1: [f32; 3], r2: [f32; 3]) -> Motor {
+fn matrix_to_rotor(r0: [f32; 3], r1: [f32; 3], r2: [f32; 3]) -> Motor<Pga3> {
     let m00 = r0[0];
     let m11 = r1[1];
     let m22 = r2[2];

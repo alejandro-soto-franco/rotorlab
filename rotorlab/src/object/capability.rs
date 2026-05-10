@@ -24,6 +24,7 @@
 
 use rotorlab_ga::motor::Motor;
 use rotorlab_ga::pga3::Line as PgaLine;
+use rotorlab_ga::pga3::Pga3;
 
 /// A drawable whose world-space position can be additively translated.
 pub trait Translatable {
@@ -53,10 +54,10 @@ pub trait Rotatable {
 /// motor.
 pub trait MotorBacked {
     /// Read the current motor.
-    fn motor(&self) -> Motor;
+    fn motor(&self) -> Motor<Pga3>;
     /// Replace the motor outright. Idempotent: calling twice with the
     /// same motor leaves the drawable unchanged.
-    fn set_motor(&mut self, m: Motor);
+    fn set_motor(&mut self, m: Motor<Pga3>);
 }
 
 /// A drawable with a single alpha channel that fade animations can drive.

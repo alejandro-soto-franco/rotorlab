@@ -42,6 +42,17 @@ pub trait Scalar:
     fn sin(self) -> Self;
     /// Returns `self.cos()`.
     fn cos(self) -> Self;
+    /// Returns `self.atan2(x)`: the angle whose tangent is `self / x`,
+    /// disambiguated by the signs of both arguments. Used by motor SLERP
+    /// to recover the half-angle of a unit rotor.
+    fn atan2(self, x: Self) -> Self;
+    /// Convert an `f32` literal into this scalar type. Mirrors
+    /// [`Scalar::from_sign`] but without the `{-1, 0, 1}` restriction;
+    /// used by callers that need the underlying field's representation
+    /// of an arbitrary floating-point constant (e.g. a SLERP epsilon).
+    /// Implementations may round the input to the nearest representable
+    /// value of the target type.
+    fn from_f32(v: f32) -> Self;
 
     /// Convert a Cayley-table sign (`-1`, `0`, `+1`) into the scalar field.
     ///
@@ -83,6 +94,12 @@ impl Scalar for f32 {
     fn cos(self) -> Self {
         f32::cos(self)
     }
+    fn atan2(self, x: Self) -> Self {
+        f32::atan2(self, x)
+    }
+    fn from_f32(v: f32) -> Self {
+        v
+    }
 }
 
 impl Scalar for f64 {
@@ -100,5 +117,11 @@ impl Scalar for f64 {
     }
     fn cos(self) -> Self {
         f64::cos(self)
+    }
+    fn atan2(self, x: Self) -> Self {
+        f64::atan2(self, x)
+    }
+    fn from_f32(v: f32) -> Self {
+        v as f64
     }
 }

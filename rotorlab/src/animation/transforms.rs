@@ -23,6 +23,7 @@ use crate::animation::{Animation, RateFunc};
 use crate::object::capability::{MotorBacked, Rotatable, Translatable};
 use rotorlab_ga::motor::Motor;
 use rotorlab_ga::pga3::Line as PgaLine;
+use rotorlab_ga::pga3::Pga3;
 
 /// Animate a [`Translatable`] target through a total displacement
 /// `delta` over `run_time` seconds.
@@ -180,9 +181,9 @@ pub struct Transform<'a> {
     /// bound is forwarded from [`Animation`].
     obj: &'a mut (dyn MotorBacked + Send),
     /// Starting motor.
-    from: Motor,
+    from: Motor<Pga3>,
     /// Ending motor.
-    to: Motor,
+    to: Motor<Pga3>,
     /// Wall-clock duration in seconds.
     run_time: f32,
     /// Easing curve.
@@ -194,8 +195,8 @@ impl<'a> Transform<'a> {
     /// [`Smootherstep`](RateFunc::Smootherstep) easing curve.
     pub fn new(
         obj: &'a mut (dyn MotorBacked + Send),
-        from: Motor,
-        to: Motor,
+        from: Motor<Pga3>,
+        to: Motor<Pga3>,
         run_time: f32,
     ) -> Self {
         Self {
@@ -313,13 +314,13 @@ mod tests {
     /// Tiny test wrapper exposing a [`MotorBacked`] target whose
     /// effect on a probe point can be observed.
     struct MotorPoint {
-        m: Motor,
+        m: Motor<Pga3>,
     }
     impl MotorBacked for MotorPoint {
-        fn motor(&self) -> Motor {
+        fn motor(&self) -> Motor<Pga3> {
             self.m
         }
-        fn set_motor(&mut self, m: Motor) {
+        fn set_motor(&mut self, m: Motor<Pga3>) {
             self.m = m;
         }
     }

@@ -1,126 +1,226 @@
-//! Motors, rotors, and translators in PGA3.
+//! Motors, rotors, and translators over an arbitrary [`Algebra`].
+//!
+//! A *motor* is an even-grade element of the algebra that acts on geometry
+//! by the sandwich product `M * X * ~M`. In PGA3 a motor encodes a rigid
+//! motion (rotation + translation); the same algebraic shape lifts to any
+//! Clifford algebra exposed via the [`Algebra`] trait. Rotors and
+//! translators are tagged subsets: a [`Rotor`] is a motor whose translator
+//! component is zero, a [`Translator`] is a motor whose rotor component is
+//! the identity scalar.
+//!
+//! The Stage 3 generalisation parameterises [`Motor`], [`Rotor`], and
+//! [`Translator`] over `A: Algebra` so that the same SLERP / sandwich /
+//! composition logic serves PGA3, future PGA2 / PGA4 modules, and synthetic
+//! algebras (see the `interpolate_generic` integration test). Hot-path
+//! per-algebra specialisations remain a separate stage.
 
+use crate::algebra::Algebra;
 use crate::multivector::Multivector;
-use crate::pga3::Pga3;
+use crate::scalar::Scalar;
 
-/// A PGA3 motor: an even-grade element representing a rigid motion
-/// (rotation + translation) via the sandwich product.
-#[derive(Copy, Clone, Default)]
-pub struct Motor(pub Multivector<Pga3>);
+/// A motor in algebra `A`: an even-grade element representing a rigid
+/// motion via the sandwich product.
+///
+/// Defined as a transparent newtype around [`Multivector<A>`]. The wrapper
+/// type carries no extra data; it exists only to mark the multivector as a
+/// motor in the type system so callers cannot accidentally pass an arbitrary
+/// multivector where a unit motor is required.
+#[derive(Copy, Clone)]
+pub struct Motor<A: Algebra>(pub Multivector<A>);
 
-/// A pure rotation (motor with zero translation component).
-#[derive(Copy, Clone, Default)]
-pub struct Rotor(pub Motor);
+/// A pure rotation: a motor whose translator component vanishes.
+///
+/// Stored as the underlying [`Motor<A>`] so all the motor methods apply
+/// transparently. Constructors that produce rotors live alongside their
+/// algebra (for PGA3 see [`crate::pga3::rotor`]).
+#[derive(Copy, Clone)]
+pub struct Rotor<A: Algebra>(pub Motor<A>);
 
-/// A pure translation (motor with zero rotation component).
-#[derive(Copy, Clone, Default)]
-pub struct Translator(pub Motor);
+/// A pure translation: a motor whose rotor component is the identity.
+///
+/// Stored as the underlying [`Motor<A>`] so all the motor methods apply
+/// transparently. Constructors that produce translators live alongside
+/// their algebra (for PGA3 see [`crate::pga3::translator`]).
+#[derive(Copy, Clone)]
+pub struct Translator<A: Algebra>(pub Motor<A>);
 
-impl Motor {
-    /// The identity motor.
+impl<A: Algebra> Default for Motor<A> {
+    fn default() -> Self {
+        Self(Multivector::default())
+    }
+}
+
+impl<A: Algebra> Default for Rotor<A> {
+    fn default() -> Self {
+        Self(Motor::default())
+    }
+}
+
+impl<A: Algebra> Default for Translator<A> {
+    fn default() -> Self {
+        Self(Motor::default())
+    }
+}
+
+impl<A: Algebra> Motor<A> {
+    /// The identity motor: scalar coefficient `1`, every other blade `0`.
+    ///
+    /// Independent of algebra signature; the grade-0 blade is always at
+    /// bit index `0`.
     pub fn identity() -> Self {
-        let mut mv: Multivector<Pga3> = Multivector::zero();
-        mv.set(0, 1.0);
+        let mut mv: Multivector<A> = Multivector::zero();
+        mv.set(0, A::Scalar::ONE);
         Motor(mv)
     }
 
-    /// Apply this motor to a multivector via the sandwich product `M * X * ~M`.
-    pub fn apply(&self, x: &Multivector<Pga3>) -> Multivector<Pga3> {
+    /// Apply this motor to a multivector via the sandwich product
+    /// `M * X * ~M`.
+    ///
+    /// Composes via two geometric products against the motor and its
+    /// reverse. Both products dispatch through [`Multivector::geometric`],
+    /// which reads its sign data from `A::CAYLEY` and so works for any
+    /// algebra.
+    pub fn apply(&self, x: &Multivector<A>) -> Multivector<A> {
         let m_rev = self.0.reverse();
         let mx = self.0.geometric(x);
         mx.geometric(&m_rev)
     }
 
     /// Compose two motors: `(self ∘ other)(x) = self(other(x))`.
-    pub fn compose(&self, other: &Motor) -> Motor {
+    ///
+    /// Realised as the geometric product `self.0 * other.0`; verifying
+    /// that the result is again a unit motor (rather than picking up a
+    /// non-unit norm under round-off) is the caller's responsibility.
+    pub fn compose(&self, other: &Motor<A>) -> Motor<A> {
         Motor(self.0.geometric(&other.0))
     }
 
     /// Interpolate between this motor and `target` along the geodesic.
     ///
-    /// Plan 3 ships rotor SLERP only: both motors are assumed to be pure
-    /// rotors (no translator content on the `e0`-bearing blades). For pure
+    /// Stage 3 ships rotor SLERP only: both motors are assumed to be pure
+    /// rotors (no translator content on null-bearing blades). For pure
     /// rotors this is the standard quaternion-style spherical linear
     /// interpolation, packaged as `result = exp(alpha * log(target * ~self)) * self`.
     ///
-    /// For a unit rotor `R = w + (b12 e12 + b13 e13 + b23 e23)` with
-    /// `w = cos(theta/2)` and `|bivec| = sin(theta/2)`, the log is
-    /// `(theta/2) * (bivec / |bivec|)`. Scaling by `alpha` and taking the
-    /// exponential gives `cos(alpha * theta/2) + sin(alpha * theta/2) * (bivec / |bivec|)`,
-    /// which is exactly the SLERP at parameter `alpha`.
+    /// For a unit rotor `R = w + B` with scalar part `w = cos(theta/2)`
+    /// and Euclidean bivector part `B` of norm `|B| = sin(theta/2)`, the
+    /// log is `(theta/2) * (B / |B|)`. Scaling by `alpha` and taking the
+    /// exponential gives `cos(alpha * theta/2) + sin(alpha * theta/2) * (B / |B|)`.
     ///
-    /// Endpoint behaviour: `interpolate(target, 0.0)` returns `self`,
-    /// `interpolate(target, 1.0)` returns `target`. When `self` and
-    /// `target` represent the same rotation (relative bivector norm
-    /// below `1e-6`), the result is `self` to avoid a `0/0` in the
-    /// `sin/|bivec|` factor.
+    /// # Generic bivector enumeration
     ///
-    /// Shortest-path: rotors `r` and `-r` represent the same SO(3)
-    /// element (the double cover). When the relative rotor's scalar
-    /// part is negative (encoding a > pi rotation), the implementation
-    /// negates the representative so SLERP traverses the short geodesic
-    /// rather than the long one.
+    /// The Euclidean-bivector subspace of an arbitrary algebra is the set
+    /// of grade-2 blades whose bitmask shares no factor with
+    /// [`Algebra::NULL_MASK`]. Enumerating that subspace by iterating
+    /// `0..A::N_BLADES` and gating on
+    /// `count_ones() == 2 && (b & NULL_MASK) == 0` lets the same loop
+    /// serve PGA3 (one null factor `e0`, three Euclidean planes) and
+    /// purely Euclidean algebras such as Cl(3, 0, 0).
+    ///
+    /// # Endpoint and degeneracy behaviour
+    ///
+    /// * `interpolate(target, 0.0)` returns `self`.
+    /// * `interpolate(target, 1.0)` returns `target`.
+    /// * When `self` and `target` represent the same rotation (relative
+    ///   bivector norm below `1e-6`), the result is `self` to avoid the
+    ///   `0/0` in the `sin(alpha*theta_half)/|bivec|` factor.
+    /// * Rotors `R` and `-R` represent the same `SO(3)` element. When
+    ///   the relative rotor's scalar part is below `-1e-6` (encoding a
+    ///   rotation greater than `pi` in the long-way representative), the
+    ///   implementation negates the relevant coefficients en masse so
+    ///   SLERP traverses the short geodesic. The threshold buffers
+    ///   floating-point noise around `w == 0` where both representatives
+    ///   are geodesic-equivalent.
     ///
     /// Translator and screw-motor SLERP are deferred to a later release;
-    /// passing motors with non-zero `e0`-bearing blades will produce a
-    /// rotor-only approximation.
-    pub fn interpolate(&self, target: &Motor, alpha: f32) -> Motor {
-        // Relative rotor R = target * reverse(self). For pure rotors this is
-        // again a pure rotor, and log(R) lies in the Euclidean bivector subspace.
+    /// passing motors with null-bearing blades produces a rotor-only
+    /// approximation.
+    pub fn interpolate(&self, target: &Motor<A>, alpha: A::Scalar) -> Motor<A> {
+        // Relative rotor R = target * reverse(self). For pure rotors this
+        // is again a pure rotor, and log(R) lies in the Euclidean bivector
+        // subspace defined by the NULL_MASK gate.
         let self_rev = self.0.reverse();
         let r = target.0.geometric(&self_rev);
 
         let w = r.get(0);
-        let b12 = r.get(0b0011);
-        let b13 = r.get(0b0101);
-        let b23 = r.get(0b0110);
-        // Double-cover shortest-path fix: rotors r and -r encode the same
-        // SO(3) element, but `atan2(|bivec|, w)` returns a half-angle in
-        // [0, pi]. Picking the representative with w >= 0 forces SLERP to
-        // take the short way around. Without this, a relative rotor whose
-        // raw scalar is clearly negative (encoding a > pi rotation)
-        // traverses the long way. The threshold (-1e-6) keeps floating
-        // point noise around w == 0 from arbitrarily flipping the
-        // direction at the half-turn boundary, where both representatives
-        // are geodesic-equivalent.
-        let (w, b12, b13, b23) = if w < -1e-6 {
-            (-w, -b12, -b13, -b23)
-        } else {
-            (w, b12, b13, b23)
-        };
-        let bivec_norm = (b12 * b12 + b13 * b13 + b23 * b23).sqrt();
 
-        // If the relative rotor is (numerically) the identity, log is zero
-        // and any scaling collapses to the identity rotor; the SLERP result
-        // is therefore self.
-        if bivec_norm < 1e-6 {
+        // Collect Euclidean bivector coefficients (grade 2, no null factor).
+        // We materialise the indices once and reuse them for the negate /
+        // norm / writeback passes so the three loops stay in sync without
+        // duplicating the gate.
+        let mut bivec_indices: [usize; A_MAX_GRADE_2] = [0; A_MAX_GRADE_2];
+        let mut bivec_count = 0usize;
+        for blade in 0..A::N_BLADES {
+            let b = blade as u64;
+            if b.count_ones() != 2 {
+                continue;
+            }
+            if (b & A::NULL_MASK) != 0 {
+                continue;
+            }
+            bivec_indices[bivec_count] = blade;
+            bivec_count += 1;
+        }
+
+        // Double-cover shortest-path fix: pick the representative with
+        // w >= 0. The threshold (-1e-6) keeps round-off near w == 0 from
+        // arbitrarily flipping direction, where both halves of the cover
+        // are geodesic-equivalent.
+        let eps = <A::Scalar as Scalar>::from_f32(1e-6);
+        let neg_threshold = -eps;
+        let needs_flip = w < neg_threshold;
+        let w = if needs_flip { -w } else { w };
+
+        // Compute |bivec| from the post-flip coefficients.
+        let mut bivec_norm_sq = A::Scalar::ZERO;
+        for &idx in bivec_indices[..bivec_count].iter() {
+            let raw = r.get(idx);
+            let coef = if needs_flip { -raw } else { raw };
+            bivec_norm_sq = bivec_norm_sq + coef * coef;
+        }
+        let bivec_norm = bivec_norm_sq.sqrt();
+
+        // If the relative rotor is (numerically) the identity, log is
+        // zero and any scaling collapses to the identity rotor; the SLERP
+        // result is therefore self.
+        if bivec_norm < eps {
             return *self;
         }
 
         // R = cos(theta/2) + sin(theta/2) * B_unit, so atan2 recovers
-        // theta/2 directly. We then scale that half-angle by alpha and
-        // rebuild exp(alpha * log(R)).
+        // theta/2 directly. We then scale by alpha and rebuild
+        // exp(alpha * log(R)).
         let theta_half = bivec_norm.atan2(w);
         let alpha_theta_half = alpha * theta_half;
         let cos_a = alpha_theta_half.cos();
         let sin_a = alpha_theta_half.sin();
         let scale = sin_a / bivec_norm;
 
-        let mut exp_part: Multivector<Pga3> = Multivector::zero();
+        let mut exp_part: Multivector<A> = Multivector::zero();
         exp_part.set(0, cos_a);
-        exp_part.set(0b0011, b12 * scale);
-        exp_part.set(0b0101, b13 * scale);
-        exp_part.set(0b0110, b23 * scale);
+        for &idx in bivec_indices[..bivec_count].iter() {
+            let raw = r.get(idx);
+            let coef = if needs_flip { -raw } else { raw };
+            exp_part.set(idx, coef * scale);
+        }
 
         // Final SLERP'd motor: exp(alpha * log(R)) * self.
         Motor(exp_part.geometric(&self.0))
     }
 }
 
+/// Maximum number of grade-2 blades any algebra we ship will need to
+/// enumerate inside `Motor::interpolate`. PGA4 (Cl(4, 0, 1), 5 ambient
+/// vectors) tops out at C(5, 2) = 10 grade-2 blades, so 16 leaves
+/// headroom for hypothetical six-vector algebras (C(6, 2) = 15) without
+/// allocating. The constant is private so callers can not depend on it.
+const A_MAX_GRADE_2: usize = 16;
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::pga3;
+    use crate::pga3::Pga3;
 
     /// Build the unit Euclidean bivector representing the world z-axis
     /// rotation plane (`e1 ∧ e2`, bitmask `0b0011`).
@@ -136,8 +236,8 @@ mod tests {
 
     #[test]
     fn interpolate_at_zero_returns_self() {
-        let m_a = pga3::rotor(z_axis_bivector(), 0.5).0;
-        let m_b = pga3::rotor(z_axis_bivector(), 1.5).0;
+        let m_a: Motor<Pga3> = pga3::rotor(z_axis_bivector(), 0.5).0;
+        let m_b: Motor<Pga3> = pga3::rotor(z_axis_bivector(), 1.5).0;
         let m = m_a.interpolate(&m_b, 0.0);
         let test_point = pga3::point(1.0, 0.0, 0.0);
         let p_via_a = m_a.apply(&test_point.0);
@@ -147,8 +247,8 @@ mod tests {
 
     #[test]
     fn interpolate_at_one_returns_target() {
-        let m_a = pga3::rotor(z_axis_bivector(), 0.5).0;
-        let m_b = pga3::rotor(z_axis_bivector(), 1.5).0;
+        let m_a: Motor<Pga3> = pga3::rotor(z_axis_bivector(), 0.5).0;
+        let m_b: Motor<Pga3> = pga3::rotor(z_axis_bivector(), 1.5).0;
         let m = m_a.interpolate(&m_b, 1.0);
         let test_point = pga3::point(1.0, 0.0, 0.0);
         let p_via_b = m_b.apply(&test_point.0);
@@ -159,8 +259,8 @@ mod tests {
     #[test]
     fn interpolate_z_rotation_at_half_is_quarter_rotation() {
         // Identity to rotor-by-pi-around-z, midpoint = rotor-by-pi/2.
-        let m_a = Motor::identity();
-        let m_b = pga3::rotor(z_axis_bivector(), core::f32::consts::PI).0;
+        let m_a: Motor<Pga3> = Motor::identity();
+        let m_b: Motor<Pga3> = pga3::rotor(z_axis_bivector(), core::f32::consts::PI).0;
         let m = m_a.interpolate(&m_b, 0.5);
         let test_point = pga3::point(1.0, 0.0, 0.0);
         let rotated = pga3::Point(m.apply(&test_point.0));
@@ -178,8 +278,8 @@ mod tests {
         // before SLERP, so the midpoint should rotate (1,0,0) by -pi/4 (the
         // short way), landing at (cos(-pi/4), sin(-pi/4), 0). Without the fix
         // the midpoint would land at the long-way (-cos(pi/4), sin(pi/4), 0).
-        let m_a = Motor::identity();
-        let m_b = pga3::rotor(z_axis_bivector(), 1.5 * core::f32::consts::PI).0;
+        let m_a: Motor<Pga3> = Motor::identity();
+        let m_b: Motor<Pga3> = pga3::rotor(z_axis_bivector(), 1.5 * core::f32::consts::PI).0;
         let m = m_a.interpolate(&m_b, 0.5);
         let test_point = pga3::point(1.0, 0.0, 0.0);
         let rotated = pga3::Point(m.apply(&test_point.0));
@@ -200,8 +300,8 @@ mod tests {
 
     #[test]
     fn interpolate_equal_rotors_is_self() {
-        let m_a = pga3::rotor(z_axis_bivector(), 0.7).0;
-        let m_b = pga3::rotor(z_axis_bivector(), 0.7).0;
+        let m_a: Motor<Pga3> = pga3::rotor(z_axis_bivector(), 0.7).0;
+        let m_b: Motor<Pga3> = pga3::rotor(z_axis_bivector(), 0.7).0;
         let m = m_a.interpolate(&m_b, 0.3);
         let test_point = pga3::point(1.0, 0.0, 0.0);
         let p_via_a = m_a.apply(&test_point.0);

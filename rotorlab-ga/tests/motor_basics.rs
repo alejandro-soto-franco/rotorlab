@@ -1,11 +1,11 @@
 //! Integration tests for Motor identity and sandwich.
 
 use rotorlab_ga::motor::Motor;
-use rotorlab_ga::pga3;
+use rotorlab_ga::pga3::{self, Pga3};
 
 #[test]
 fn identity_motor_preserves_point() {
-    let m = Motor::identity();
+    let m: Motor<Pga3> = Motor::identity();
     let p = pga3::point(1.0, 2.0, 3.0);
     let p_moved = m.apply(&p.0);
     for k in 0..16 {
@@ -20,7 +20,7 @@ fn identity_motor_preserves_point() {
 
 #[test]
 fn identity_motor_compose_is_identity() {
-    let i = Motor::identity();
+    let i: Motor<Pga3> = Motor::identity();
     let i2 = i.compose(&i);
     let p = pga3::point(1.0, 2.0, 3.0);
     let p_moved = i2.apply(&p.0);
@@ -37,7 +37,7 @@ fn rotor_zero_angle_is_identity() {
     b.set(0b0011, 1.0);
     let plane = rotorlab_ga::pga3::Bivector(b);
     let r = rotorlab_ga::pga3::rotor(plane, 0.0);
-    let i = Motor::identity();
+    let i: Motor<Pga3> = Motor::identity();
     for k in 0..16 {
         let diff = (r.0.0.get(k) - i.0.get(k)).abs();
         assert!(
