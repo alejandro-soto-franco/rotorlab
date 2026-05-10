@@ -10,6 +10,7 @@ pub mod blade;
 pub mod grade;
 pub mod motor;
 pub mod multivector;
+pub mod pga2;
 pub mod pga3;
 pub mod scalar;
 
