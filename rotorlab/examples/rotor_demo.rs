@@ -43,9 +43,8 @@ use rotorlab::animation::{Animation, RateFunc};
 use rotorlab::camera::{Camera, Projection};
 use rotorlab::object::{Color, Drawable, Line, Plane, Point, Stroke};
 use rotorlab::scene::{H264Preset, Output, Scene, SceneConfig};
-use rotorlab_ga::motor::Motor;
 use rotorlab_ga::multivector::Multivector;
-use rotorlab_ga::pga3::{self, Pga3};
+use rotorlab_ga::pga3::{self, Pga3, shapes};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -105,8 +104,8 @@ fn main() {
     // half_width = 3.0 keeps the unit-axis points comfortably inside
     // the frame; half_height tracks the 16:9 aspect.
     let camera = Camera::look_at_with_projection(
-        pga3::point(0.0, 0.0, 5.0),
-        pga3::point(0.0, 0.0, 0.0),
+        shapes::Point::new(0.0, 0.0, 5.0),
+        shapes::Point::new(0.0, 0.0, 0.0),
         [0.0, 1.0, 0.0],
         Projection::Orthographic {
             half_width: 3.0,
@@ -170,14 +169,19 @@ fn main() {
 
             // Combined rotor: z first, then oblique. Composition
             // order is `oblique * z` so a point first picks up the z
-            // rotation, then the oblique rotation.
-            let rotor_z = pga3::rotor(z_axis_bivector(), s.rotation_z);
-            let rotor_obl = pga3::rotor(oblique_axis_bivector(), s.rotation_oblique);
-            let combined: Motor<Pga3> = rotor_obl.0.compose(&rotor_z.0);
+            // rotation, then the oblique rotation. Each rotor is
+            // built on the dense surface (the standard
+            // bivector-exponential factory), then converted to the
+            // shape representation so we can compose via the
+            // specialised [`shapes::Motor::compose`].
+            let rotor_z: shapes::Motor = pga3::rotor(z_axis_bivector(), s.rotation_z).into();
+            let rotor_obl: shapes::Motor =
+                pga3::rotor(oblique_axis_bivector(), s.rotation_oblique).into();
+            let combined: shapes::Motor = rotor_obl.compose(&rotor_z);
 
-            let pt = |xyz: [f32; 3]| -> pga3::Point {
-                let p = pga3::point(xyz[0], xyz[1], xyz[2]);
-                pga3::Point(combined.apply(&p.0))
+            let pt = |xyz: [f32; 3]| -> shapes::Point {
+                let p = shapes::Point::new(xyz[0], xyz[1], xyz[2]);
+                combined.apply_to_point(&p)
             };
 
             // Three axis points at unit positions, colored by axis.
@@ -259,9 +263,12 @@ fn oblique_axis_bivector() -> pga3::Bivector {
 }
 
 /// PGA3 plane representing the xy plane (`z = 0`), encoded as the
-/// pure `e3` blade (bitmask `0b0100`).
-fn xy_plane_pga() -> pga3::Plane {
-    let mut mv: Multivector<Pga3> = Multivector::zero();
-    mv.set(0b0100, 1.0);
-    pga3::Plane(mv)
+/// pure `e3` blade.
+fn xy_plane_pga() -> shapes::Plane {
+    shapes::Plane {
+        e_0: 0.0,
+        e_1: 0.0,
+        e_2: 0.0,
+        e_3: 1.0,
+    }
 }

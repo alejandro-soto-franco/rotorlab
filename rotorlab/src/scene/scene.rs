@@ -6,7 +6,7 @@
 //! ```no_run
 //! use rotorlab::camera::Camera;
 //! use rotorlab::scene::{Output, Scene, SceneConfig};
-//! use rotorlab_ga::pga3::point;
+//! use rotorlab_ga::pga3::shapes;
 //! use std::path::PathBuf;
 //!
 //! let cfg = SceneConfig {
@@ -18,8 +18,8 @@
 //!     ..Default::default()
 //! };
 //! let camera = Camera::look_at(
-//!     point(0.0, 0.0, 5.0),
-//!     point(0.0, 0.0, 0.0),
+//!     shapes::Point::new(0.0, 0.0, 5.0),
+//!     shapes::Point::new(0.0, 0.0, 0.0),
 //!     [0.0, 1.0, 0.0],
 //! );
 //! let scene = Scene::new(cfg, camera).expect("scene init");
@@ -476,11 +476,15 @@ fn write_bgra_png(
 mod tests {
     use super::*;
     use crate::scene::config::H264Preset;
-    use rotorlab_ga::pga3::point;
+    use rotorlab_ga::pga3::shapes;
     use tempfile::tempdir;
 
     fn default_camera() -> Camera {
-        Camera::look_at(point(0.0, 0.0, 5.0), point(0.0, 0.0, 0.0), [0.0, 1.0, 0.0])
+        Camera::look_at(
+            shapes::Point::new(0.0, 0.0, 5.0),
+            shapes::Point::new(0.0, 0.0, 0.0),
+            [0.0, 1.0, 0.0],
+        )
     }
 
     /// Make a small PngSequence config so tests do not allocate

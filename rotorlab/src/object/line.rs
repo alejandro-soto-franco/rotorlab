@@ -27,7 +27,7 @@ use crate::object::drawable::{Aabb, Drawable};
 use crate::object::style::Stroke;
 use crate::render::pipelines::LineInstance;
 use crate::scene::FrameContext;
-use rotorlab_ga::pga3::{self, Bivector, Line as PgaLine, Point as PgaPoint};
+use rotorlab_ga::pga3::{self, Line as PgaLine, shapes};
 
 /// A drawable line segment: two PGA3 endpoints and a [`Stroke`].
 ///
@@ -37,12 +37,12 @@ use rotorlab_ga::pga3::{self, Bivector, Line as PgaLine, Point as PgaPoint};
 /// Plan 3 does not use `bounds()` for culling, only auto-framing, so
 /// the approximation is fine until Plan 5 introduces proper
 /// screen-space bounds.
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct Line {
     /// First endpoint in world space (PGA3 trivector).
-    pub a: PgaPoint,
+    pub a: shapes::Point,
     /// Second endpoint in world space (PGA3 trivector).
-    pub b: PgaPoint,
+    pub b: shapes::Point,
     /// Stroke styling (color + screen-pixel thickness).
     pub stroke: Stroke,
 }
@@ -50,7 +50,7 @@ pub struct Line {
 impl Line {
     /// Construct a line segment from two explicit PGA3 endpoints and a
     /// [`Stroke`].
-    pub fn new(a: PgaPoint, b: PgaPoint, stroke: Stroke) -> Self {
+    pub fn new(a: shapes::Point, b: shapes::Point, stroke: Stroke) -> Self {
         Self { a, b, stroke }
     }
 
@@ -95,8 +95,8 @@ impl Line {
         } else {
             (1.0, 0.0, 0.0)
         };
-        let a = pga3::point(-nx * view_extent, -ny * view_extent, -nz * view_extent);
-        let b = pga3::point(nx * view_extent, ny * view_extent, nz * view_extent);
+        let a = shapes::Point::new(-nx * view_extent, -ny * view_extent, -nz * view_extent);
+        let b = shapes::Point::new(nx * view_extent, ny * view_extent, nz * view_extent);
         Line::new(a, b, Stroke::default_white())
     }
 
@@ -153,8 +153,8 @@ impl Translatable for Line {
     fn translate_by(&mut self, delta: [f32; 3]) {
         let ae = self.a.to_euclidean();
         let be = self.b.to_euclidean();
-        self.a = pga3::point(ae[0] + delta[0], ae[1] + delta[1], ae[2] + delta[2]);
-        self.b = pga3::point(be[0] + delta[0], be[1] + delta[1], be[2] + delta[2]);
+        self.a = shapes::Point::new(ae[0] + delta[0], ae[1] + delta[1], ae[2] + delta[2]);
+        self.b = shapes::Point::new(be[0] + delta[0], be[1] + delta[1], be[2] + delta[2]);
     }
 }
 
@@ -162,10 +162,10 @@ impl Rotatable for Line {
     /// Rotate both endpoints around the supplied PGA3 axis line by
     /// `angle` radians via the rotor sandwich product.
     fn rotate_by(&mut self, axis: PgaLine, angle: f32) {
-        let bivector = Bivector(axis.0);
-        let rotor = pga3::rotor(bivector, angle);
-        self.a = PgaPoint(rotor.0.apply(&self.a.0));
-        self.b = PgaPoint(rotor.0.apply(&self.b.0));
+        let bivector = pga3::Bivector(axis.0);
+        let rotor: shapes::Motor = pga3::rotor(bivector, angle).into();
+        self.a = rotor.apply_to_point(&self.a);
+        self.b = rotor.apply_to_point(&self.b);
     }
 }
 
@@ -231,8 +231,8 @@ mod tests {
 
     #[test]
     fn to_instance_packs_endpoints() {
-        let a = pga3::point(0.0, 0.0, 0.0);
-        let b = pga3::point(3.0, 4.0, 0.0);
+        let a = shapes::Point::new(0.0, 0.0, 0.0);
+        let b = shapes::Point::new(3.0, 4.0, 0.0);
         let line = Line::new(a, b, Stroke::new(Color::GREEN, 2.0));
         let inst = line.to_instance();
         assert_eq!(inst.a, [0.0, 0.0, 0.0, 1.0]);
@@ -244,8 +244,8 @@ mod tests {
     #[test]
     fn line_bounds_include_endpoints_and_thickness() {
         let line = Line::new(
-            pga3::point(0.0, 0.0, 0.0),
-            pga3::point(2.0, 4.0, 0.0),
+            shapes::Point::new(0.0, 0.0, 0.0),
+            shapes::Point::new(2.0, 4.0, 0.0),
             Stroke::new(Color::WHITE, 1.0),
         );
         let b = line.bounds();
@@ -256,8 +256,8 @@ mod tests {
     #[test]
     fn line_default_z_order_is_zero() {
         let line = Line::new(
-            pga3::point(0.0, 0.0, 0.0),
-            pga3::point(1.0, 0.0, 0.0),
+            shapes::Point::new(0.0, 0.0, 0.0),
+            shapes::Point::new(1.0, 0.0, 0.0),
             Stroke::default_white(),
         );
         assert_eq!(line.z_order(), 0.0);

@@ -28,7 +28,7 @@ use crate::object::drawable::{Aabb, Drawable};
 use crate::object::line::Line;
 use crate::object::style::Stroke;
 use crate::scene::FrameContext;
-use rotorlab_ga::pga3::{self, Plane as PgaPlane};
+use rotorlab_ga::pga3::shapes;
 
 /// A drawable plane rendered as a four-edge wireframe quad.
 ///
@@ -36,11 +36,11 @@ use rotorlab_ga::pga3::{self, Plane as PgaPlane};
 /// plane's closest point to the world origin. Plan 3 ships the
 /// wireframe path only; the filled translucent variant is deferred to
 /// Plan 6's `FillPipeline`.
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct Plane {
     /// The PGA3 plane (grade-1 vector with components on `e1`, `e2`,
     /// `e3`, `e0` encoding `a*x + b*y + c*z = d`).
-    pub plane: PgaPlane,
+    pub plane: shapes::Plane,
     /// Half-side of the rendered square, in world units.
     pub view_extent: f32,
     /// Edge stroke styling shared by all four wireframe edges.
@@ -50,7 +50,7 @@ pub struct Plane {
 impl Plane {
     /// Construct a plane drawable from a PGA3 plane, a view extent, and
     /// an edge stroke.
-    pub fn new(plane: PgaPlane, view_extent: f32, stroke: Stroke) -> Self {
+    pub fn new(plane: shapes::Plane, view_extent: f32, stroke: Stroke) -> Self {
         Self {
             plane,
             view_extent,
@@ -79,10 +79,10 @@ impl Plane {
     /// remain well defined; Plan 5 will surface this case as a
     /// `Result` once plane construction can plausibly fail.
     pub fn corners(&self) -> [[f32; 3]; 4] {
-        let a = self.plane.0.get(0b0001);
-        let b = self.plane.0.get(0b0010);
-        let c = self.plane.0.get(0b0100);
-        let d = self.plane.0.get(0b1000);
+        let a = self.plane.e_1;
+        let b = self.plane.e_2;
+        let c = self.plane.e_3;
+        let d = self.plane.e_0;
 
         let len_sq = a * a + b * b + c * c;
         let (nx, ny, nz, inv_len) = if len_sq > 1e-12 {
@@ -143,7 +143,7 @@ impl Plane {
     /// `c3->c0`.
     pub fn edges(&self) -> [Line; 4] {
         let c = self.corners();
-        let p = |xyz: [f32; 3]| pga3::point(xyz[0], xyz[1], xyz[2]);
+        let p = |xyz: [f32; 3]| shapes::Point::new(xyz[0], xyz[1], xyz[2]);
         [
             Line::new(p(c[0]), p(c[1]), self.stroke),
             Line::new(p(c[1]), p(c[2]), self.stroke),
@@ -195,15 +195,16 @@ impl HasOpacity for Plane {
 mod tests {
     use super::*;
     use crate::object::style::{Color, Stroke};
-    use rotorlab_ga::multivector::Multivector;
-    use rotorlab_ga::pga3;
 
-    fn xy_plane() -> PgaPlane {
+    fn xy_plane() -> shapes::Plane {
         // Construct the plane z = 0 directly: only the e3 coefficient
         // is +1.
-        let mut mv: Multivector<pga3::Pga3> = Multivector::zero();
-        mv.set(0b0100, 1.0);
-        PgaPlane(mv)
+        shapes::Plane {
+            e_0: 0.0,
+            e_1: 0.0,
+            e_2: 0.0,
+            e_3: 1.0,
+        }
     }
 
     #[test]

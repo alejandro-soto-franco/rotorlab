@@ -22,9 +22,8 @@
 //! deferred to a later plan; the rotor demo (Task 12) only needs
 //! point and line support.
 
-use rotorlab_ga::motor::Motor;
 use rotorlab_ga::pga3::Line as PgaLine;
-use rotorlab_ga::pga3::Pga3;
+use rotorlab_ga::pga3::shapes;
 
 /// A drawable whose world-space position can be additively translated.
 pub trait Translatable {
@@ -54,10 +53,10 @@ pub trait Rotatable {
 /// motor.
 pub trait MotorBacked {
     /// Read the current motor.
-    fn motor(&self) -> Motor<Pga3>;
+    fn motor(&self) -> shapes::Motor;
     /// Replace the motor outright. Idempotent: calling twice with the
     /// same motor leaves the drawable unchanged.
-    fn set_motor(&mut self, m: Motor<Pga3>);
+    fn set_motor(&mut self, m: shapes::Motor);
 }
 
 /// A drawable with a single alpha channel that fade animations can drive.
@@ -77,7 +76,7 @@ mod tests {
 
     #[test]
     fn point_implements_translatable() {
-        let mut p = Point::new(pga3::point(0.0, 0.0, 0.0), Color::WHITE, 1.0);
+        let mut p = Point::new(shapes::Point::new(0.0, 0.0, 0.0), Color::WHITE, 1.0);
         p.translate_by([1.0, 2.0, 3.0]);
         let xyz = p.position.to_euclidean();
         assert!((xyz[0] - 1.0).abs() < 1e-5);
@@ -87,7 +86,7 @@ mod tests {
 
     #[test]
     fn point_implements_rotatable_z_axis() {
-        let mut p = Point::new(pga3::point(1.0, 0.0, 0.0), Color::WHITE, 1.0);
+        let mut p = Point::new(shapes::Point::new(1.0, 0.0, 0.0), Color::WHITE, 1.0);
         let z_axis = pga3::line_through(pga3::point(0.0, 0.0, 0.0), pga3::point(0.0, 0.0, 1.0));
         p.rotate_by(z_axis, core::f32::consts::PI);
         let xyz = p.position.to_euclidean();
@@ -98,7 +97,7 @@ mod tests {
 
     #[test]
     fn point_implements_has_opacity() {
-        let mut p = Point::new(pga3::point(0.0, 0.0, 0.0), Color::WHITE, 1.0);
+        let mut p = Point::new(shapes::Point::new(0.0, 0.0, 0.0), Color::WHITE, 1.0);
         p.set_opacity(0.25);
         assert!((p.color.a - 0.25).abs() < 1e-6);
     }
@@ -106,8 +105,8 @@ mod tests {
     #[test]
     fn line_implements_translatable() {
         let mut line = Line::new(
-            pga3::point(0.0, 0.0, 0.0),
-            pga3::point(1.0, 0.0, 0.0),
+            shapes::Point::new(0.0, 0.0, 0.0),
+            shapes::Point::new(1.0, 0.0, 0.0),
             Stroke::default_white(),
         );
         line.translate_by([0.0, 5.0, 0.0]);
@@ -120,8 +119,8 @@ mod tests {
     #[test]
     fn line_implements_has_opacity() {
         let mut line = Line::new(
-            pga3::point(0.0, 0.0, 0.0),
-            pga3::point(1.0, 0.0, 0.0),
+            shapes::Point::new(0.0, 0.0, 0.0),
+            shapes::Point::new(1.0, 0.0, 0.0),
             Stroke::default_white(),
         );
         line.set_opacity(0.5);

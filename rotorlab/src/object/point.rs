@@ -19,7 +19,7 @@ use crate::object::drawable::{Aabb, Drawable};
 use crate::object::style::Color;
 use crate::render::pipelines::PointInstance;
 use crate::scene::FrameContext;
-use rotorlab_ga::pga3::{self, Bivector, Line as PgaLine, Point as PgaPoint};
+use rotorlab_ga::pga3::{self, Line as PgaLine, shapes};
 
 /// A drawable point: a GA position, a linear-sRGB color, and a
 /// screen-pixel disk radius.
@@ -30,10 +30,10 @@ use rotorlab_ga::pga3::{self, Bivector, Line as PgaLine, Point as PgaPoint};
 /// does not use `bounds()` for culling, only auto-framing, so the
 /// approximation is fine until Plan 5 introduces proper screen-space
 /// bounds.
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct Point {
     /// World-space position, stored as a PGA3 trivector.
-    pub position: PgaPoint,
+    pub position: shapes::Point,
     /// Disk color (linear sRGB). Alpha is multiplied by the disk's
     /// edge-antialiasing factor in the fragment shader.
     pub color: Color,
@@ -44,7 +44,7 @@ pub struct Point {
 impl Point {
     /// Construct a point with the supplied position, color, and
     /// screen-pixel radius.
-    pub fn new(position: PgaPoint, color: Color, radius: f32) -> Self {
+    pub fn new(position: shapes::Point, color: Color, radius: f32) -> Self {
         Self {
             position,
             color,
@@ -56,9 +56,9 @@ impl Point {
     /// expected by [`PointPipeline`](crate::render::pipelines::PointPipeline).
     ///
     /// Divides the PGA3 trivector by its `e_123` weight via
-    /// [`PgaPoint::to_euclidean`] to recover affine `(x, y, z)`, then
-    /// packs into a 48-byte instance with `world_pos.w = 1.0` (the
-    /// homogeneous-finite-point marker).
+    /// [`shapes::Point::to_euclidean`] to recover affine `(x, y, z)`,
+    /// then packs into a 48-byte instance with `world_pos.w = 1.0`
+    /// (the homogeneous-finite-point marker).
     pub fn to_instance(&self) -> PointInstance {
         let xyz = self.position.to_euclidean();
         PointInstance {
@@ -101,7 +101,7 @@ impl Translatable for Point {
     /// coordinates and rebuilding a unit-weight PGA3 point.
     fn translate_by(&mut self, delta: [f32; 3]) {
         let xyz = self.position.to_euclidean();
-        self.position = pga3::point(xyz[0] + delta[0], xyz[1] + delta[1], xyz[2] + delta[2]);
+        self.position = shapes::Point::new(xyz[0] + delta[0], xyz[1] + delta[1], xyz[2] + delta[2]);
     }
 }
 
@@ -109,14 +109,14 @@ impl Rotatable for Point {
     /// Rotate the point around the supplied PGA3 axis line by `angle`
     /// radians, via the rotor sandwich product.
     ///
-    /// The axis bivector is taken straight from the line's
-    /// [`Multivector`](rotorlab_ga::Multivector) storage so that
-    /// rotations composed by the caller (axis built once, multiple
-    /// rotations of the same drawable) remain numerically consistent.
+    /// The axis bivector is taken straight from the line's dense
+    /// multivector storage so that rotations composed by the caller
+    /// (axis built once, multiple rotations of the same drawable)
+    /// remain numerically consistent.
     fn rotate_by(&mut self, axis: PgaLine, angle: f32) {
-        let bivector = Bivector(axis.0);
-        let rotor = pga3::rotor(bivector, angle);
-        self.position = PgaPoint(rotor.0.apply(&self.position.0));
+        let bivector = pga3::Bivector(axis.0);
+        let rotor: shapes::Motor = pga3::rotor(bivector, angle).into();
+        self.position = rotor.apply_to_point(&self.position);
     }
 }
 
@@ -130,11 +130,10 @@ impl HasOpacity for Point {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rotorlab_ga::pga3::point as pga_point;
 
     #[test]
     fn to_instance_unit_weight() {
-        let p = Point::new(pga_point(1.0, 2.0, 3.0), Color::RED, 4.0);
+        let p = Point::new(shapes::Point::new(1.0, 2.0, 3.0), Color::RED, 4.0);
         let inst = p.to_instance();
         assert_eq!(inst.world_pos, [1.0, 2.0, 3.0, 1.0]);
         assert_eq!(inst.color, [1.0, 0.0, 0.0, 1.0]);
@@ -143,7 +142,7 @@ mod tests {
 
     #[test]
     fn point_bounds_are_centered_at_position() {
-        let p = Point::new(pga_point(5.0, 0.0, 0.0), Color::WHITE, 2.0);
+        let p = Point::new(shapes::Point::new(5.0, 0.0, 0.0), Color::WHITE, 2.0);
         let b = p.bounds();
         assert_eq!(b.min, [3.0, -2.0, -2.0]);
         assert_eq!(b.max, [7.0, 2.0, 2.0]);
@@ -155,7 +154,7 @@ mod tests {
         // we exercise `to_instance` directly and assert on its shape.
         // Tasks 11-12 will exercise the full `record` path with a live
         // command buffer.
-        let p = Point::new(pga_point(0.0, 0.0, 0.0), Color::BLUE, 1.0);
+        let p = Point::new(shapes::Point::new(0.0, 0.0, 0.0), Color::BLUE, 1.0);
         let inst = p.to_instance();
         assert_eq!(inst.world_pos[3], 1.0);
         assert_eq!(inst.color[2], 1.0);
@@ -164,7 +163,7 @@ mod tests {
 
     #[test]
     fn point_default_z_order_is_zero() {
-        let p = Point::new(pga_point(0.0, 0.0, 0.0), Color::WHITE, 1.0);
+        let p = Point::new(shapes::Point::new(0.0, 0.0, 0.0), Color::WHITE, 1.0);
         assert_eq!(p.z_order(), 0.0);
     }
 }

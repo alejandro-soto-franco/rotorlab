@@ -52,6 +52,36 @@ pub struct Point {
     pub e_123: f32,
 }
 
+impl Point {
+    /// Construct a unit-weight Euclidean point at `(x, y, z)`.
+    ///
+    /// Mirrors [`crate::pga3::point`] but produces the named-field
+    /// shape struct directly (`e_023 = x`, `e_013 = y`, `e_012 = z`,
+    /// `e_123 = 1.0`).
+    pub const fn new(x: f32, y: f32, z: f32) -> Self {
+        Self {
+            e_023: x,
+            e_013: y,
+            e_012: z,
+            e_123: 1.0,
+        }
+    }
+
+    /// Convert this PGA3 point to Euclidean `(x, y, z)` by dividing
+    /// the trivector coefficients by the homogeneous weight `e_123`.
+    ///
+    /// Returns `[0.0, 0.0, 0.0]` for points whose weight has absolute
+    /// value below `1e-12` (these represent points at projective
+    /// infinity).
+    pub fn to_euclidean(&self) -> [f32; 3] {
+        let w = self.e_123;
+        if w.abs() < 1e-12 {
+            return [0.0, 0.0, 0.0];
+        }
+        [self.e_023 / w, self.e_013 / w, self.e_012 / w]
+    }
+}
+
 // SAFETY: `#[repr(C)]` with only `f32` fields. The all-zero bit
 // pattern is valid for every `f32`, so `Zeroable` applies.
 unsafe impl bytemuck::Zeroable for Point {}
@@ -293,6 +323,63 @@ unsafe impl bytemuck::Zeroable for Motor {}
 // valid `f32`, the struct contains no padding, and it derives `Copy`,
 // so `Pod` applies.
 unsafe impl bytemuck::Pod for Motor {}
+
+impl Motor {
+    /// The identity motor: scalar coefficient `1`, every other blade
+    /// `0`.
+    ///
+    /// Mirrors [`crate::motor::Motor::identity`] in the named-field
+    /// shape representation. Applying this to any shape leaves it
+    /// unchanged (up to round-off).
+    pub const fn identity() -> Self {
+        Self {
+            s: 1.0,
+            e_12: 0.0,
+            e_13: 0.0,
+            e_23: 0.0,
+            e_01: 0.0,
+            e_02: 0.0,
+            e_03: 0.0,
+            e_0123: 0.0,
+        }
+    }
+}
+
+impl From<Rotor> for Motor {
+    /// Embed a [`Rotor`] into a [`Motor`] by copying the four rotor
+    /// blades into the matching motor slots and zeroing the translator
+    /// + pseudoscalar parts.
+    fn from(r: Rotor) -> Self {
+        Self {
+            s: r.s,
+            e_12: r.e_12,
+            e_13: r.e_13,
+            e_23: r.e_23,
+            e_01: 0.0,
+            e_02: 0.0,
+            e_03: 0.0,
+            e_0123: 0.0,
+        }
+    }
+}
+
+impl From<Translator> for Motor {
+    /// Embed a [`Translator`] into a [`Motor`] by copying the scalar
+    /// and three null-bivector blades into the matching motor slots
+    /// and zeroing the rotor + pseudoscalar parts.
+    fn from(t: Translator) -> Self {
+        Self {
+            s: t.s,
+            e_12: 0.0,
+            e_13: 0.0,
+            e_23: 0.0,
+            e_01: t.e_01,
+            e_02: t.e_02,
+            e_03: t.e_03,
+            e_0123: 0.0,
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {

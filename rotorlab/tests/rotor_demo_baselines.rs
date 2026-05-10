@@ -49,9 +49,8 @@ use rotorlab::animation::{Animation, RateFunc};
 use rotorlab::camera::{Camera, Projection};
 use rotorlab::object::{Color, Drawable, Line, Plane, Point, Stroke};
 use rotorlab::scene::{Output, Scene, SceneConfig};
-use rotorlab_ga::motor::Motor;
 use rotorlab_ga::multivector::Multivector;
-use rotorlab_ga::pga3::{self, Pga3};
+use rotorlab_ga::pga3::{self, Pga3, shapes};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -123,10 +122,13 @@ fn oblique_axis_bivector() -> pga3::Bivector {
 }
 
 /// PGA3 plane representing the xy plane (`z = 0`). Matches the example.
-fn xy_plane_pga() -> pga3::Plane {
-    let mut mv: Multivector<Pga3> = Multivector::zero();
-    mv.set(0b0100, 1.0);
-    pga3::Plane(mv)
+fn xy_plane_pga() -> shapes::Plane {
+    shapes::Plane {
+        e_0: 0.0,
+        e_1: 0.0,
+        e_2: 0.0,
+        e_3: 1.0,
+    }
 }
 
 /// True when the lavapipe gating env var is set to a non-empty value.
@@ -162,8 +164,8 @@ fn baseline_path(frame_index: u32) -> PathBuf {
 fn demo_camera(resolution: (u32, u32)) -> Camera {
     let (w, h) = resolution;
     Camera::look_at_with_projection(
-        pga3::point(0.0, 0.0, 5.0),
-        pga3::point(0.0, 0.0, 0.0),
+        shapes::Point::new(0.0, 0.0, 5.0),
+        shapes::Point::new(0.0, 0.0, 0.0),
         [0.0, 1.0, 0.0],
         Projection::Orthographic {
             half_width: 3.0,
@@ -270,13 +272,14 @@ fn run_demo_once() -> RenderState {
         let s = *render_state.lock().unwrap();
         let alpha = s.fade.clamp(0.0, 1.0);
 
-        let rotor_z = pga3::rotor(z_axis_bivector(), s.rotation_z);
-        let rotor_obl = pga3::rotor(oblique_axis_bivector(), s.rotation_oblique);
-        let combined: Motor<Pga3> = rotor_obl.0.compose(&rotor_z.0);
+        let rotor_z: shapes::Motor = pga3::rotor(z_axis_bivector(), s.rotation_z).into();
+        let rotor_obl: shapes::Motor =
+            pga3::rotor(oblique_axis_bivector(), s.rotation_oblique).into();
+        let combined: shapes::Motor = rotor_obl.compose(&rotor_z);
 
-        let pt = |xyz: [f32; 3]| -> pga3::Point {
-            let p = pga3::point(xyz[0], xyz[1], xyz[2]);
-            pga3::Point(combined.apply(&p.0))
+        let pt = |xyz: [f32; 3]| -> shapes::Point {
+            let p = shapes::Point::new(xyz[0], xyz[1], xyz[2]);
+            combined.apply_to_point(&p)
         };
 
         let p_x = Point::new(pt([1.0, 0.0, 0.0]), Color::rgba(1.0, 0.3, 0.3, alpha), 14.0);

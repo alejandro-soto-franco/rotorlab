@@ -21,9 +21,8 @@
 
 use crate::animation::{Animation, RateFunc};
 use crate::object::capability::{MotorBacked, Rotatable, Translatable};
-use rotorlab_ga::motor::Motor;
 use rotorlab_ga::pga3::Line as PgaLine;
-use rotorlab_ga::pga3::Pga3;
+use rotorlab_ga::pga3::shapes;
 
 /// Animate a [`Translatable`] target through a total displacement
 /// `delta` over `run_time` seconds.
@@ -181,9 +180,9 @@ pub struct Transform<'a> {
     /// bound is forwarded from [`Animation`].
     obj: &'a mut (dyn MotorBacked + Send),
     /// Starting motor.
-    from: Motor<Pga3>,
+    from: shapes::Motor,
     /// Ending motor.
-    to: Motor<Pga3>,
+    to: shapes::Motor,
     /// Wall-clock duration in seconds.
     run_time: f32,
     /// Easing curve.
@@ -195,8 +194,8 @@ impl<'a> Transform<'a> {
     /// [`Smootherstep`](RateFunc::Smootherstep) easing curve.
     pub fn new(
         obj: &'a mut (dyn MotorBacked + Send),
-        from: Motor<Pga3>,
-        to: Motor<Pga3>,
+        from: shapes::Motor,
+        to: shapes::Motor,
         run_time: f32,
     ) -> Self {
         Self {
@@ -240,7 +239,7 @@ mod tests {
 
     #[test]
     fn translate_alpha_one_moves_point_by_full_delta() {
-        let mut p = Point::new(pga3::point(0.0, 0.0, 0.0), Color::WHITE, 1.0);
+        let mut p = Point::new(shapes::Point::new(0.0, 0.0, 0.0), Color::WHITE, 1.0);
         {
             let mut anim = Translate::new(&mut p, [1.0, 0.0, 0.0], 1.0);
             anim.interpolate(1.0);
@@ -255,7 +254,7 @@ mod tests {
     fn translate_incremental_steps_compose_to_full_delta() {
         // Drive through 5 alpha steps; final position must equal the
         // single-step result.
-        let mut p = Point::new(pga3::point(0.0, 0.0, 0.0), Color::WHITE, 1.0);
+        let mut p = Point::new(shapes::Point::new(0.0, 0.0, 0.0), Color::WHITE, 1.0);
         {
             let mut anim = Translate::new(&mut p, [2.0, 4.0, -1.0], 1.0);
             for k in 1..=5 {
@@ -270,21 +269,21 @@ mod tests {
 
     #[test]
     fn translate_default_rate_is_smootherstep() {
-        let mut p = Point::new(pga3::point(0.0, 0.0, 0.0), Color::WHITE, 1.0);
+        let mut p = Point::new(shapes::Point::new(0.0, 0.0, 0.0), Color::WHITE, 1.0);
         let anim = Translate::new(&mut p, [1.0, 0.0, 0.0], 1.0);
         assert!(matches!(anim.rate_func(), RateFunc::Smootherstep));
     }
 
     #[test]
     fn translate_run_time_round_trips() {
-        let mut p = Point::new(pga3::point(0.0, 0.0, 0.0), Color::WHITE, 1.0);
+        let mut p = Point::new(shapes::Point::new(0.0, 0.0, 0.0), Color::WHITE, 1.0);
         let anim = Translate::new(&mut p, [1.0, 0.0, 0.0], 2.5);
         assert_eq!(anim.run_time(), 2.5);
     }
 
     #[test]
     fn rotate_z_axis_pi_flips_x() {
-        let mut p = Point::new(pga3::point(1.0, 0.0, 0.0), Color::WHITE, 1.0);
+        let mut p = Point::new(shapes::Point::new(1.0, 0.0, 0.0), Color::WHITE, 1.0);
         let z_axis = pga3::line_through(pga3::point(0.0, 0.0, 0.0), pga3::point(0.0, 0.0, 1.0));
         {
             let mut anim = Rotate::new(&mut p, z_axis, core::f32::consts::PI, 1.0);
@@ -298,7 +297,7 @@ mod tests {
 
     #[test]
     fn rotate_incremental_steps_compose_to_full_angle() {
-        let mut p = Point::new(pga3::point(1.0, 0.0, 0.0), Color::WHITE, 1.0);
+        let mut p = Point::new(shapes::Point::new(1.0, 0.0, 0.0), Color::WHITE, 1.0);
         let z_axis = pga3::line_through(pga3::point(0.0, 0.0, 0.0), pga3::point(0.0, 0.0, 1.0));
         {
             let mut anim = Rotate::new(&mut p, z_axis, core::f32::consts::PI, 1.0);
@@ -314,13 +313,13 @@ mod tests {
     /// Tiny test wrapper exposing a [`MotorBacked`] target whose
     /// effect on a probe point can be observed.
     struct MotorPoint {
-        m: Motor<Pga3>,
+        m: shapes::Motor,
     }
     impl MotorBacked for MotorPoint {
-        fn motor(&self) -> Motor<Pga3> {
+        fn motor(&self) -> shapes::Motor {
             self.m
         }
-        fn set_motor(&mut self, m: Motor<Pga3>) {
+        fn set_motor(&mut self, m: shapes::Motor) {
             self.m = m;
         }
     }
@@ -333,18 +332,18 @@ mod tests {
             rotorlab_ga::Multivector::zero();
         mv.set(0b0011, 1.0);
         let z_bivec = pga3::Bivector(mv);
-        let from = Motor::identity();
-        let to = pga3::rotor(z_bivec, core::f32::consts::PI).0;
+        let from = shapes::Motor::identity();
+        let to: shapes::Motor = pga3::rotor(z_bivec, core::f32::consts::PI).into();
 
         let mut target = MotorPoint {
-            m: Motor::identity(),
+            m: shapes::Motor::identity(),
         };
         {
             let mut anim = Transform::new(&mut target, from, to, 1.0);
             anim.interpolate(0.5);
         }
-        let probe = pga3::point(1.0, 0.0, 0.0);
-        let rotated = pga3::Point(target.m.apply(&probe.0)).to_euclidean();
+        let probe = shapes::Point::new(1.0, 0.0, 0.0);
+        let rotated = target.m.apply_to_point(&probe).to_euclidean();
         assert!(rotated[0].abs() < 1e-4, "x: {}", rotated[0]);
         assert!((rotated[1] - 1.0).abs() < 1e-4, "y: {}", rotated[1]);
         assert!(rotated[2].abs() < 1e-4, "z: {}", rotated[2]);
@@ -356,19 +355,19 @@ mod tests {
             rotorlab_ga::Multivector::zero();
         mv.set(0b0011, 1.0);
         let z_bivec = pga3::Bivector(mv);
-        let from = Motor::identity();
-        let to = pga3::rotor(z_bivec, core::f32::consts::PI).0;
+        let from = shapes::Motor::identity();
+        let to: shapes::Motor = pga3::rotor(z_bivec, core::f32::consts::PI).into();
 
         let mut target = MotorPoint {
-            m: Motor::identity(),
+            m: shapes::Motor::identity(),
         };
         {
             let mut anim = Transform::new(&mut target, from, to, 1.0);
             anim.interpolate(1.0);
         }
-        let probe = pga3::point(1.0, 0.0, 0.0);
-        let via_target = pga3::Point(target.m.apply(&probe.0)).to_euclidean();
-        let via_to = pga3::Point(to.apply(&probe.0)).to_euclidean();
+        let probe = shapes::Point::new(1.0, 0.0, 0.0);
+        let via_target = target.m.apply_to_point(&probe).to_euclidean();
+        let via_to = to.apply_to_point(&probe).to_euclidean();
         assert!((via_target[0] - via_to[0]).abs() < 1e-4);
         assert!((via_target[1] - via_to[1]).abs() < 1e-4);
         assert!((via_target[2] - via_to[2]).abs() < 1e-4);

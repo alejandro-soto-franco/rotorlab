@@ -27,6 +27,7 @@ use core::fmt;
 
 use super::algebra::Pga3;
 use super::shapes;
+use crate::motor::{Motor as DenseMotor, Rotor as DenseRotor, Translator as DenseTranslator};
 use crate::multivector::Multivector;
 
 /// Tolerance multiplier on top of `f32::EPSILON * scale` used when
@@ -380,6 +381,55 @@ impl TryFrom<Multivector<Pga3>> for shapes::Motor {
             e_03: mv.get(0b1100),
             e_0123: mv.get(0b1111),
         })
+    }
+}
+
+// ---------------------------------------------------------------------
+// Dense Motor / Rotor / Translator -> shapes::Motor (lossy, unchecked)
+// ---------------------------------------------------------------------
+//
+// These shortcut conversions read the 8 motor blades from the dense
+// representation directly without going through the strict
+// [`TryFrom`] support check. Sandwich and compose products on a unit
+// motor preserve the even-grade subalgebra in exact arithmetic; in
+// `f32` they can deposit sub-tolerance dust on out-of-shape blades.
+// The engine drops that dust silently when crossing back into the
+// shape representation. Use the strict [`TryFrom`] above when the
+// caller must surface that dust as an error.
+
+impl From<DenseMotor<Pga3>> for shapes::Motor {
+    /// Read the 8 motor blades from a dense [`DenseMotor<Pga3>`] into
+    /// a [`shapes::Motor`], silently dropping any sub-tolerance dust on
+    /// out-of-shape blades. For the strict round-trip surface use
+    /// [`TryFrom<Multivector<Pga3>> for shapes::Motor`] instead.
+    fn from(m: DenseMotor<Pga3>) -> Self {
+        Self {
+            s: m.0.get(0b0000),
+            e_12: m.0.get(0b0011),
+            e_13: m.0.get(0b0101),
+            e_23: m.0.get(0b0110),
+            e_01: m.0.get(0b1001),
+            e_02: m.0.get(0b1010),
+            e_03: m.0.get(0b1100),
+            e_0123: m.0.get(0b1111),
+        }
+    }
+}
+
+impl From<DenseRotor<Pga3>> for shapes::Motor {
+    /// Convert a dense [`DenseRotor<Pga3>`] into a [`shapes::Motor`]
+    /// by reading the 8 motor blades from its inner motor.
+    fn from(r: DenseRotor<Pga3>) -> Self {
+        shapes::Motor::from(r.0)
+    }
+}
+
+impl From<DenseTranslator<Pga3>> for shapes::Motor {
+    /// Convert a dense [`DenseTranslator<Pga3>`] into a
+    /// [`shapes::Motor`] by reading the 8 motor blades from its inner
+    /// motor.
+    fn from(t: DenseTranslator<Pga3>) -> Self {
+        shapes::Motor::from(t.0)
     }
 }
 

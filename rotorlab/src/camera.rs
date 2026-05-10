@@ -1,10 +1,11 @@
 //! Camera and projection types for the rotorlab engine.
 //!
-//! The camera stores its pose as a PGA3 [`Motor`] and a [`Projection`]
-//! variant. The motor represents the camera-to-world transform: applying
-//! it to the canonical origin yields the world-space camera position, and
-//! applying it to the canonical forward direction yields the world-space
-//! viewing direction.
+//! The camera stores its pose as a PGA3 [`shapes::Motor`] (the
+//! named-field shape struct introduced in Stage 7) and a [`Projection`]
+//! variant. The motor represents the camera-to-world transform:
+//! applying it to the canonical origin yields the world-space camera
+//! position, and applying it to the canonical forward direction yields
+//! the world-space viewing direction.
 //!
 //! # Conventions
 //!
@@ -19,23 +20,21 @@
 //!
 //! The view matrix is derived from the motor by applying the motor's
 //! reverse (the inverse, for unit motors) to four reference points: the
-//! origin and the three Euclidean axis points. The Euclidean coordinates
-//! of the transformed points populate the four columns of a 4x4 matrix.
-//! See [`view_matrix`](Camera::view_matrix) for the implementation.
+//! origin and the three Euclidean axis points. The Euclidean
+//! coordinates of the transformed points populate the four columns of
+//! a 4x4 matrix. See [`view_matrix`](Camera::view_matrix) for the
+//! implementation.
 
-use rotorlab_ga::motor::Motor;
+use rotorlab_ga::motor::Motor as DenseMotor;
 use rotorlab_ga::multivector::Multivector;
-use rotorlab_ga::pga3::{self, Bivector, Line, Pga3, Point};
+use rotorlab_ga::pga3::{self, Line, Pga3, shapes};
 
-// Bitmask indices for the bivector basis blades used to build translators.
-const E_01: usize = 0b1001; // translation along x
-const E_02: usize = 0b1010; // translation along y
-const E_03: usize = 0b1100; // translation along z
-
-// Bitmask indices for the spatial bivector basis blades (rotor planes).
-const E_23: usize = 0b0110; // rotation around x (e2 ∧ e3)
-const E_13: usize = 0b0101; // rotation plane for y axis (e1 ∧ e3)
-const E_12: usize = 0b0011; // rotation around z (e1 ∧ e2)
+// Bitmask index for the e_12 bivector blade. Only used inside the
+// `orbit_zero_angle_is_identity` test for direct multivector
+// construction; the production code paths read e_12 by name from
+// [`shapes::Motor::e_12`] and never see this constant.
+#[cfg(test)]
+const E_12: usize = 0b0011;
 
 /// Projection mode used when computing [`Camera::proj_matrix`].
 #[derive(Copy, Clone, Debug)]
@@ -73,17 +72,20 @@ pub enum Projection {
 
 /// A camera in PGA3.
 ///
-/// The [`motor`](Self::motor) field encodes the camera-to-world transform:
-/// applying it to the canonical origin yields the world-space camera
-/// position, and applying it to the canonical forward direction yields
-/// the world-space viewing direction. The view matrix is the inverse
-/// (the reverse, for unit motors) of the motor expressed as a 4x4 matrix.
+/// The [`motor`](Self::motor) field encodes the camera-to-world
+/// transform: applying it to the canonical origin yields the
+/// world-space camera position, and applying it to the canonical
+/// forward direction yields the world-space viewing direction. The
+/// view matrix is the inverse (the reverse, for unit motors) of the
+/// motor expressed as a 4x4 matrix.
 ///
-/// Does not derive `Debug` because [`Motor`] does not implement it.
-#[derive(Copy, Clone)]
+/// `motor` is stored as the named-field [`shapes::Motor`]; the engine
+/// applies it to shape-typed points via
+/// [`shapes::Motor::apply_to_point`].
+#[derive(Copy, Clone, Debug)]
 pub struct Camera {
     /// Camera-to-world rigid motion.
-    pub motor: Motor<Pga3>,
+    pub motor: shapes::Motor,
     /// Projection mode.
     pub projection: Projection,
     /// RGBA clear color used when this camera renders a frame.
@@ -102,7 +104,7 @@ impl Camera {
     /// If `eye == target` or `up` is parallel to `target - eye`, the
     /// resulting motor is degenerate but the function still returns;
     /// callers are expected to pass a sensible frame.
-    pub fn look_at(eye: Point, target: Point, up: [f32; 3]) -> Self {
+    pub fn look_at(eye: shapes::Point, target: shapes::Point, up: [f32; 3]) -> Self {
         Self::look_at_with_projection(
             eye,
             target,
@@ -131,13 +133,13 @@ impl Camera {
     /// resulting motor is degenerate but the function still returns;
     /// callers are expected to pass a sensible frame.
     pub fn look_at_with_projection(
-        eye: Point,
-        target: Point,
+        eye: shapes::Point,
+        target: shapes::Point,
         up: [f32; 3],
         projection: Projection,
     ) -> Self {
-        let eye_e = point_to_euclidean(&eye.0);
-        let target_e = point_to_euclidean(&target.0);
+        let eye_e = eye.to_euclidean();
+        let target_e = target.to_euclidean();
         let mut forward = sub3(target_e, eye_e);
         forward = normalize3(forward).unwrap_or([0.0, 0.0, -1.0]);
         let mut right = cross3(forward, up);
@@ -177,7 +179,13 @@ impl Camera {
         // GPU-boundary conversion: the motor is the only PGA representation
         // of orientation in the engine; everything downstream of this
         // function operates on the resulting 4x4 matrix.
-        let inv = Motor(self.motor.0.reverse());
+        //
+        // The reverse of a Motor lives on the dense surface; we round
+        // through `Multivector<Pga3>` to invoke
+        // [`Multivector::reverse`], then read the 8 even-graded blades
+        // back into a [`shapes::Motor`].
+        let dense_mv: Multivector<Pga3> = self.motor.into();
+        let inv: shapes::Motor = DenseMotor::<Pga3>(dense_mv.reverse()).into();
         motor_to_mat4(&inv)
     }
 
@@ -234,8 +242,9 @@ impl Camera {
     /// The rotation is applied in world space: the new motor is
     /// `rotor(axis, angle).compose(&self.motor)`.
     pub fn orbit(&self, axis: Line, angle: f32) -> Self {
-        let r = pga3::rotor(Bivector(axis.0), angle);
-        let new_motor = r.0.compose(&self.motor);
+        let r = pga3::rotor(pga3::Bivector(axis.0), angle);
+        let r_shape: shapes::Motor = r.into();
+        let new_motor = r_shape.compose(&self.motor);
         Self {
             motor: new_motor,
             ..*self
@@ -250,10 +259,14 @@ impl Camera {
     pub fn dolly(&self, distance: f32) -> Self {
         // Compute the camera's current forward direction in world space
         // by transforming the canonical origin and a point one unit ahead.
-        let origin_world = self.motor.apply(&pga3::point(0.0, 0.0, 0.0).0);
-        let ahead_world = self.motor.apply(&pga3::point(0.0, 0.0, -1.0).0);
-        let o = point_to_euclidean(&origin_world);
-        let a = point_to_euclidean(&ahead_world);
+        let origin_world = self
+            .motor
+            .apply_to_point(&shapes::Point::new(0.0, 0.0, 0.0));
+        let ahead_world = self
+            .motor
+            .apply_to_point(&shapes::Point::new(0.0, 0.0, -1.0));
+        let o = origin_world.to_euclidean();
+        let a = ahead_world.to_euclidean();
         let dir = sub3(a, o);
         let dir = normalize3(dir).unwrap_or([0.0, 0.0, -1.0]);
         let trans = build_translator(dir[0] * distance, dir[1] * distance, dir[2] * distance);
@@ -276,16 +289,16 @@ impl Camera {
 // is constructed from PGA data.
 // ============================================================================
 
-fn motor_to_mat4(m: &Motor<Pga3>) -> [[f32; 4]; 4] {
-    let p0 = m.apply(&pga3::point(0.0, 0.0, 0.0).0);
-    let px = m.apply(&pga3::point(1.0, 0.0, 0.0).0);
-    let py = m.apply(&pga3::point(0.0, 1.0, 0.0).0);
-    let pz = m.apply(&pga3::point(0.0, 0.0, 1.0).0);
+fn motor_to_mat4(m: &shapes::Motor) -> [[f32; 4]; 4] {
+    let p0 = m.apply_to_point(&shapes::Point::new(0.0, 0.0, 0.0));
+    let px = m.apply_to_point(&shapes::Point::new(1.0, 0.0, 0.0));
+    let py = m.apply_to_point(&shapes::Point::new(0.0, 1.0, 0.0));
+    let pz = m.apply_to_point(&shapes::Point::new(0.0, 0.0, 1.0));
 
-    let o = point_to_euclidean(&p0);
-    let cx = sub3(point_to_euclidean(&px), o);
-    let cy = sub3(point_to_euclidean(&py), o);
-    let cz = sub3(point_to_euclidean(&pz), o);
+    let o = p0.to_euclidean();
+    let cx = sub3(px.to_euclidean(), o);
+    let cy = sub3(py.to_euclidean(), o);
+    let cz = sub3(pz.to_euclidean(), o);
 
     [
         [cx[0], cy[0], cz[0], o[0]],
@@ -295,29 +308,27 @@ fn motor_to_mat4(m: &Motor<Pga3>) -> [[f32; 4]; 4] {
     ]
 }
 
-fn point_to_euclidean(mv: &Multivector<Pga3>) -> [f32; 3] {
-    // Thin shim around `pga3::Point::to_euclidean` for the camera's
-    // raw-multivector call sites (the result of `motor.apply` is a
-    // `Multivector<Pga3>`, not a typed `Point`). The two functions
-    // share the same near-zero-weight guard and blade indices.
-    Point(*mv).to_euclidean()
-}
-
-fn build_translator(tx: f32, ty: f32, tz: f32) -> Motor<Pga3> {
+fn build_translator(tx: f32, ty: f32, tz: f32) -> shapes::Motor {
     // A PGA3 translator that maps the canonical origin to the Euclidean
-    // point `(tx, ty, tz)` under `Motor::apply`. The per-axis half-coefficients
-    // below are derived empirically from the geometric-product Cayley table
-    // used in `rotorlab_ga`; the bit-ordering of basis blades in this crate
-    // (`e0` is bit 3, so `0b1001 = e1 ∧ e0` etc.) makes the textbook sign
-    // axis-dependent. The exact signs are pinned by
-    // `translator_moves_origin_to_offset`, `look_at_places_camera_at_eye`,
-    // and `dolly_moves_camera_along_forward`.
-    let mut mv: Multivector<Pga3> = Multivector::zero();
-    mv.set(0, 1.0); // scalar part
-    mv.set(E_01, -0.5 * tx);
-    mv.set(E_02, 0.5 * ty);
-    mv.set(E_03, -0.5 * tz);
-    Motor(mv)
+    // point `(tx, ty, tz)` under `Motor::apply_to_point`. The per-axis
+    // half-coefficients below are derived empirically from the
+    // geometric-product Cayley table used in `rotorlab_ga`; the
+    // bit-ordering of basis blades in this crate (`e0` is bit 3, so
+    // `0b1001 = e1 ∧ e0` etc.) makes the textbook sign axis-dependent.
+    // The exact signs are pinned by
+    // `translator_moves_origin_to_offset`,
+    // `look_at_places_camera_at_eye`, and
+    // `dolly_moves_camera_along_forward`.
+    shapes::Motor {
+        s: 1.0,
+        e_12: 0.0,
+        e_13: 0.0,
+        e_23: 0.0,
+        e_01: -0.5 * tx,
+        e_02: 0.5 * ty,
+        e_03: -0.5 * tz,
+        e_0123: 0.0,
+    }
 }
 
 // Convert a 3x3 rotation matrix (rows r0, r1, r2) to a PGA3 rotor.
@@ -334,7 +345,7 @@ fn build_translator(tx: f32, ty: f32, tz: f32) -> Motor<Pga3> {
 // `look_at(eye, target, up).motor.apply(origin) == eye` and
 // `look_at(eye, target, up).motor.apply(canonical_forward) == eye - target`
 // to working precision. They are pinned by the look_at sanity tests below.
-fn matrix_to_rotor(r0: [f32; 3], r1: [f32; 3], r2: [f32; 3]) -> Motor<Pga3> {
+fn matrix_to_rotor(r0: [f32; 3], r1: [f32; 3], r2: [f32; 3]) -> shapes::Motor {
     let m00 = r0[0];
     let m11 = r1[1];
     let m22 = r2[2];
@@ -370,13 +381,17 @@ fn matrix_to_rotor(r0: [f32; 3], r1: [f32; 3], r2: [f32; 3]) -> Motor<Pga3> {
         (w, x, y, z)
     };
 
-    let mut mv: Multivector<Pga3> = Multivector::zero();
-    mv.set(0, w);
-    mv.set(E_23, x);
-    // negate y to match e_13 sign convention; see function header
-    mv.set(E_13, -y);
-    mv.set(E_12, z);
-    Motor(mv)
+    shapes::Motor {
+        s: w,
+        e_12: z,
+        // negate y to match e_13 sign convention; see function header
+        e_13: -y,
+        e_23: x,
+        e_01: 0.0,
+        e_02: 0.0,
+        e_03: 0.0,
+        e_0123: 0.0,
+    }
 }
 
 // Row-major 4x4 multiply: out = a * b.
@@ -443,7 +458,7 @@ mod tests {
     #[test]
     fn identity_motor_produces_identity_view() {
         let cam = Camera {
-            motor: Motor::identity(),
+            motor: shapes::Motor::identity(),
             projection: Projection::Orthographic {
                 half_width: 1.0,
                 half_height: 1.0,
@@ -464,7 +479,7 @@ mod tests {
         // view-space input (x, y, z, 1) inside the box, the clip-space
         // output is (x, -y, z, 1).
         let cam = Camera {
-            motor: Motor::identity(),
+            motor: shapes::Motor::identity(),
             projection: Projection::Orthographic {
                 half_width: 1.0,
                 half_height: 1.0,
@@ -497,7 +512,7 @@ mod tests {
         // Expected (0,0) = 1 / (16/9) = 9/16.
         // Expected (1,1) = -f = -1 (Y flip baked into proj_matrix).
         let cam = Camera {
-            motor: Motor::identity(),
+            motor: shapes::Motor::identity(),
             projection: Projection::Perspective {
                 fov_y: std::f32::consts::FRAC_PI_2,
                 aspect: 16.0 / 9.0,
@@ -516,9 +531,8 @@ mod tests {
         // Sanity: build_translator(2, 3, 5) applied to origin should yield
         // the point (2, 3, 5). Pins the sign of build_translator.
         let t = build_translator(2.0, 3.0, 5.0);
-        let p = pga3::point(0.0, 0.0, 0.0);
-        let moved = t.apply(&p.0);
-        let e = point_to_euclidean(&moved);
+        let p = shapes::Point::new(0.0, 0.0, 0.0);
+        let e = t.apply_to_point(&p).to_euclidean();
         assert!(approx_eq(e[0], 2.0, 1e-5), "x: {}", e[0]);
         assert!(approx_eq(e[1], 3.0, 1e-5), "y: {}", e[1]);
         assert!(approx_eq(e[2], 5.0, 1e-5), "z: {}", e[2]);
@@ -528,12 +542,11 @@ mod tests {
     fn look_at_places_camera_at_eye() {
         // The camera motor takes the canonical origin to the world-space
         // eye position.
-        let eye = pga3::point(2.0, 3.0, 5.0);
-        let target = pga3::point(0.0, 0.0, 0.0);
+        let eye = shapes::Point::new(2.0, 3.0, 5.0);
+        let target = shapes::Point::new(0.0, 0.0, 0.0);
         let cam = Camera::look_at(eye, target, [0.0, 1.0, 0.0]);
-        let origin = pga3::point(0.0, 0.0, 0.0);
-        let placed = cam.motor.apply(&origin.0);
-        let e = point_to_euclidean(&placed);
+        let origin = shapes::Point::new(0.0, 0.0, 0.0);
+        let e = cam.motor.apply_to_point(&origin).to_euclidean();
         assert!(approx_eq(e[0], 2.0, 1e-4), "x: {}", e[0]);
         assert!(approx_eq(e[1], 3.0, 1e-4), "y: {}", e[1]);
         assert!(approx_eq(e[2], 5.0, 1e-4), "z: {}", e[2]);
@@ -542,7 +555,7 @@ mod tests {
     #[test]
     fn orbit_zero_angle_is_identity() {
         let cam = Camera {
-            motor: Motor::identity(),
+            motor: shapes::Motor::identity(),
             projection: Projection::Orthographic {
                 half_width: 1.0,
                 half_height: 1.0,
@@ -563,7 +576,7 @@ mod tests {
     #[test]
     fn dolly_zero_distance_is_identity_pose() {
         let cam = Camera {
-            motor: Motor::identity(),
+            motor: shapes::Motor::identity(),
             projection: Projection::Orthographic {
                 half_width: 1.0,
                 half_height: 1.0,
@@ -582,8 +595,8 @@ mod tests {
         // Pins that look_at_with_projection actually carries the supplied
         // projection through to the constructed camera (rather than always
         // defaulting to perspective).
-        let eye = pga3::point(2.0, 3.0, 5.0);
-        let target = pga3::point(0.0, 0.0, 0.0);
+        let eye = shapes::Point::new(2.0, 3.0, 5.0);
+        let target = shapes::Point::new(0.0, 0.0, 0.0);
         let cam = Camera::look_at_with_projection(
             eye,
             target,
@@ -603,7 +616,7 @@ mod tests {
         // Identity camera looks down -Z. dolly(2) should move it to
         // (0, 0, -2) in world space.
         let cam = Camera {
-            motor: Motor::identity(),
+            motor: shapes::Motor::identity(),
             projection: Projection::Orthographic {
                 half_width: 1.0,
                 half_height: 1.0,
@@ -613,8 +626,10 @@ mod tests {
             clear_color: [0.0; 4],
         };
         let dollied = cam.dolly(2.0);
-        let placed = dollied.motor.apply(&pga3::point(0.0, 0.0, 0.0).0);
-        let e = point_to_euclidean(&placed);
+        let e = dollied
+            .motor
+            .apply_to_point(&shapes::Point::new(0.0, 0.0, 0.0))
+            .to_euclidean();
         assert!(approx_eq(e[0], 0.0, 1e-5), "x: {}", e[0]);
         assert!(approx_eq(e[1], 0.0, 1e-5), "y: {}", e[1]);
         assert!(approx_eq(e[2], -2.0, 1e-5), "z: {}", e[2]);

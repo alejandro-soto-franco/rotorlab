@@ -120,12 +120,12 @@ mod tests {
     use super::*;
     use crate::object::Point;
     use crate::object::style::Color;
-    use rotorlab_ga::pga3;
+    use rotorlab_ga::pga3::shapes;
 
     #[test]
     fn fade_in_full_alpha_sets_opacity_one() {
         let mut p = Point::new(
-            pga3::point(0.0, 0.0, 0.0),
+            shapes::Point::new(0.0, 0.0, 0.0),
             Color::rgba(1.0, 0.0, 0.0, 0.0),
             1.0,
         );
@@ -139,7 +139,7 @@ mod tests {
     #[test]
     fn fade_in_half_alpha_sets_opacity_half() {
         let mut p = Point::new(
-            pga3::point(0.0, 0.0, 0.0),
+            shapes::Point::new(0.0, 0.0, 0.0),
             Color::rgba(1.0, 0.0, 0.0, 0.0),
             1.0,
         );
@@ -153,7 +153,7 @@ mod tests {
     #[test]
     fn fade_in_finalize_pins_opacity_to_one() {
         let mut p = Point::new(
-            pga3::point(0.0, 0.0, 0.0),
+            shapes::Point::new(0.0, 0.0, 0.0),
             Color::rgba(1.0, 0.0, 0.0, 0.0),
             1.0,
         );
@@ -168,7 +168,7 @@ mod tests {
 
     #[test]
     fn fade_out_full_alpha_sets_opacity_zero() {
-        let mut p = Point::new(pga3::point(0.0, 0.0, 0.0), Color::WHITE, 1.0);
+        let mut p = Point::new(shapes::Point::new(0.0, 0.0, 0.0), Color::WHITE, 1.0);
         {
             let mut anim = FadeOut::new(&mut p, 1.0);
             anim.interpolate(1.0);
@@ -178,7 +178,7 @@ mod tests {
 
     #[test]
     fn fade_out_half_alpha_sets_opacity_half() {
-        let mut p = Point::new(pga3::point(0.0, 0.0, 0.0), Color::WHITE, 1.0);
+        let mut p = Point::new(shapes::Point::new(0.0, 0.0, 0.0), Color::WHITE, 1.0);
         {
             let mut anim = FadeOut::new(&mut p, 1.0);
             anim.interpolate(0.5);
@@ -188,7 +188,7 @@ mod tests {
 
     #[test]
     fn fade_out_finalize_pins_opacity_to_zero() {
-        let mut p = Point::new(pga3::point(0.0, 0.0, 0.0), Color::WHITE, 1.0);
+        let mut p = Point::new(shapes::Point::new(0.0, 0.0, 0.0), Color::WHITE, 1.0);
         {
             let mut anim = FadeOut::new(&mut p, 1.0);
             anim.interpolate(0.0001);

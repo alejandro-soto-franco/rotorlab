@@ -17,7 +17,7 @@
 use rotorlab::animation::{Animation, RateFunc};
 use rotorlab::camera::Camera;
 use rotorlab::scene::{Output, Scene, SceneConfig};
-use rotorlab_ga::pga3;
+use rotorlab_ga::pga3::shapes;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -68,8 +68,8 @@ fn make_config(fps: u32) -> (SceneConfig, tempfile::TempDir) {
 /// alpha traces, not pixels.
 fn camera() -> Camera {
     Camera::look_at(
-        pga3::point(0.0, 0.0, 5.0),
-        pga3::point(0.0, 0.0, 0.0),
+        shapes::Point::new(0.0, 0.0, 5.0),
+        shapes::Point::new(0.0, 0.0, 0.0),
         [0.0, 1.0, 0.0],
     )
 }
