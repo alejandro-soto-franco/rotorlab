@@ -94,20 +94,25 @@ fn cl3_identity_rotor_is_grade_zero_unit() {
 #[test]
 fn cl3_interpolate_xy_plane_half_is_quarter_rotation() {
     // SLERP from identity to a pi-rotation in e12 at alpha=0.5 must be a
-    // quarter rotation in the e12 plane. The rotation sends (1, 0, 0) to a
-    // unit vector in the xy-plane with vanishing x and z components; the
-    // sign of the y component depends on the bit-permutation parity of
-    // the Cayley-table entry for the sandwich (which differs between
-    // Cl3 and PGA3 conventions). We assert the magnitude only, since
-    // the goal of this test is to confirm the Euclidean-bivector
-    // enumeration in `Motor::interpolate` picks up the e12 contribution
-    // for an algebra whose `NULL_MASK` is zero.
+    // quarter rotation in the e12 plane. The rotation sends (1, 0, 0) to
+    // a unit vector in the xy-plane with vanishing x and z components.
+    //
+    // Sign locked in 2026-05-10 against Cl3 Cayley with `[+1, +1, +1]`
+    // metric and PGA3-parity bit ordering: the y-component lands at
+    // exactly `-1`. A regression on rotation direction in
+    // `Motor::interpolate` (e.g. swapping `target * ~self` for
+    // `~self * target` in the relative-rotor build, or flipping the
+    // double-cover branch) would change this sign and trip the assert.
     let from = Motor::<Cl3>::identity();
     let to = cl3_rotor(E12, core::f32::consts::PI);
     let mid = from.interpolate(&to, 0.5);
     let xyz = rotate_vec(&mid, 1.0, 0.0, 0.0);
     assert!(approx_eq(xyz[0], 0.0, 1e-4), "x: {}", xyz[0]);
-    assert!(approx_eq(xyz[1].abs(), 1.0, 1e-4), "|y|: {}", xyz[1].abs());
+    assert!(
+        approx_eq(xyz[1], -1.0, 1e-4),
+        "y: {} (rotation-direction regression flips this sign)",
+        xyz[1],
+    );
     assert!(approx_eq(xyz[2], 0.0, 1e-4), "z: {}", xyz[2]);
 }
 
@@ -119,31 +124,44 @@ fn cl3_interpolate_xz_plane_half_is_quarter_rotation() {
     // This test fails to take the e13 contribution unless `interpolate`
     // enumerates blades by `count_ones() == 2 && (b & NULL_MASK) == 0`
     // rather than hard-coding the three PGA3 indices.
+    //
+    // Sign locked in 2026-05-10 against Cl3 Cayley with `[+1, +1, +1]`
+    // metric and PGA3-parity bit ordering: the z-component lands at
+    // exactly `-1`. A regression on rotation direction in
+    // `Motor::interpolate` would change this sign and trip the assert.
     let from = Motor::<Cl3>::identity();
     let to = cl3_rotor(E13, core::f32::consts::PI);
     let mid = from.interpolate(&to, 0.5);
-    // Quarter rotation in e13 sends (1, 0, 0) to either (0, 0, +1) or
-    // (0, 0, -1) depending on sign convention; both are correct outcomes
-    // of SLERP, so we assert the y-component vanishes and the (x, z)
-    // pair has unit norm with x near zero.
     let xyz = rotate_vec(&mid, 1.0, 0.0, 0.0);
     assert!(approx_eq(xyz[0], 0.0, 1e-4), "x: {}", xyz[0]);
     assert!(approx_eq(xyz[1], 0.0, 1e-4), "y: {}", xyz[1]);
-    assert!(approx_eq(xyz[2].abs(), 1.0, 1e-4), "|z|: {}", xyz[2].abs());
+    assert!(
+        approx_eq(xyz[2], -1.0, 1e-4),
+        "z: {} (rotation-direction regression flips this sign)",
+        xyz[2],
+    );
 }
 
 #[test]
 fn cl3_interpolate_yz_plane_half_is_quarter_rotation() {
+    // Quarter rotation in e23 sends (0, 1, 0) to a unit vector with no
+    // x-component and with y near zero.
+    //
+    // Sign locked in 2026-05-10 against Cl3 Cayley with `[+1, +1, +1]`
+    // metric and PGA3-parity bit ordering: the z-component lands at
+    // exactly `-1`. A regression on rotation direction in
+    // `Motor::interpolate` would change this sign and trip the assert.
     let from = Motor::<Cl3>::identity();
     let to = cl3_rotor(E23, core::f32::consts::PI);
     let mid = from.interpolate(&to, 0.5);
-    // Quarter rotation in e23 sends (0, 1, 0) to a unit vector with no
-    // x-component and with y near zero; the z-component sign depends on
-    // bit-permutation parity, so assert the magnitude only.
     let xyz = rotate_vec(&mid, 0.0, 1.0, 0.0);
     assert!(approx_eq(xyz[0], 0.0, 1e-4), "x: {}", xyz[0]);
     assert!(approx_eq(xyz[1], 0.0, 1e-4), "y: {}", xyz[1]);
-    assert!(approx_eq(xyz[2].abs(), 1.0, 1e-4), "|z|: {}", xyz[2].abs());
+    assert!(
+        approx_eq(xyz[2], -1.0, 1e-4),
+        "z: {} (rotation-direction regression flips this sign)",
+        xyz[2],
+    );
 }
 
 #[test]

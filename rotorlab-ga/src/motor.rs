@@ -102,6 +102,20 @@ impl<A: Algebra> Motor<A> {
     /// rotors this is the standard quaternion-style spherical linear
     /// interpolation, packaged as `result = exp(alpha * log(target * ~self)) * self`.
     ///
+    /// # Limits
+    ///
+    /// Supported up to `A::DIM == 6`. The implementation enumerates the
+    /// Euclidean grade-2 blades into a fixed-length scratch array sized
+    /// by the private constant `A_MAX_GRADE_2 = 16`, which covers
+    /// `C(6, 2) = 15` blades with one slot of headroom. An algebra with
+    /// `A::DIM >= 7` would have `C(7, 2) = 21` grade-2 blades and
+    /// overflow the scratch; in debug builds this trips a
+    /// `debug_assert!`, in release builds it would silently corrupt the
+    /// computation. Adding such an algebra requires either raising
+    /// `A_MAX_GRADE_2` (and updating this paragraph) or splitting the
+    /// scratch sizing per-algebra (e.g. via an associated const on
+    /// [`Algebra`]).
+    ///
     /// For a unit rotor `R = w + B` with scalar part `w = cos(theta/2)`
     /// and Euclidean bivector part `B` of norm `|B| = sin(theta/2)`, the
     /// log is `(theta/2) * (B / |B|)`. Scaling by `alpha` and taking the
@@ -158,6 +172,14 @@ impl<A: Algebra> Motor<A> {
             if (b & A::NULL_MASK) != 0 {
                 continue;
             }
+            debug_assert!(
+                bivec_count < A_MAX_GRADE_2,
+                "Motor::interpolate scratch overflow: A::DIM = {} produces more than {} grade-2 \
+                 Euclidean blades. Raise A_MAX_GRADE_2 in motor.rs (or split the scratch sizing \
+                 per algebra) and update the Limits paragraph on Motor::interpolate.",
+                A::DIM,
+                A_MAX_GRADE_2,
+            );
             bivec_indices[bivec_count] = blade;
             bivec_count += 1;
         }
