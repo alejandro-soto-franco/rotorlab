@@ -4,10 +4,10 @@
 //! `e1`, `e2` square to `+1`; `e0` (null) squares to `0`.
 //!
 //! Bitmask `0b111` represents the canonical-bit-order pseudoscalar
-//! `I = e1 ∧ e2 ∧ e0`. This differs from `e0 ∧ e1 ∧ e2` (the ordering common
-//! in textbooks) by `(-1)^2 = +1` from moving `e0` past two basis vectors,
-//! so the two pseudoscalars actually agree in PGA2; we still document the
-//! convention explicitly to keep the rule consistent across the crate.
+//! `I = e1 ∧ e2 ∧ e0`. Moving `e0` past `e1, e2` gives an even-parity sign
+//! change, so `e1 ∧ e2 ∧ e0` and `e0 ∧ e1 ∧ e2` agree on the pseudoscalar's
+//! sign in PGA2. The bit-ascending convention is preserved here for
+//! consistency with PGA3.
 
 use crate::algebra::Algebra;
 
@@ -98,6 +98,17 @@ pub struct Bivector(pub Multivector<Pga2>);
 /// Note: in PGA2, points and the generic bivector subspace share the same
 /// grade. The newtype distinguishes them at the type level even though the
 /// underlying storage is identical.
+///
+/// # Bitmask layout
+///
+/// A normalised point at `(x, y)` is the bivector
+/// `e_12 + x * e_02 + y * e_01`, with bit 0 = `e1`, bit 1 = `e2`, bit 2 = `e0`:
+///
+///   - weight on `e_12 = 0b011`
+///   - x on `e_02 = 0b110`
+///   - y on `e_01 = 0b101`
+///
+/// See [`point()`] for the constructor that pins this layout.
 #[derive(Copy, Clone, Default)]
 pub struct Point(pub Multivector<Pga2>);
 
@@ -190,6 +201,10 @@ pub fn rotor(plane: Bivector, angle: f32) -> Rotor<Pga2> {
 
 /// Build a translator that translates by `distance` along the (null) direction
 /// bivector `direction` (a bivector containing `e0`).
+///
+/// In PGA2 the only admissible direction bivectors are `e_01 = 0b101` and
+/// `e_02 = 0b110`; passing `e_12 = 0b011` (the Euclidean rotation plane)
+/// would degenerate the result, since `e_12` does not contain `e0`.
 ///
 /// Computes `exp(distance/2 * T) = 1 + distance/2 * T` because `T^2 = 0`.
 pub fn translator(direction: Bivector, distance: f32) -> Translator<Pga2> {
@@ -360,17 +375,25 @@ mod tests {
     }
 
     #[test]
-    fn point_x_axis_round_trips() {
-        // Convention pin: point(1, 0) must yield (1, 0) after to_euclidean.
-        let xy = point(1.0, 0.0).to_euclidean();
-        assert!((xy[0] - 1.0).abs() < 1e-6);
-        assert!(xy[1].abs() < 1e-6);
+    fn point_pins_bitmask_convention() {
+        // Convention pin at the bitmask level: weight on e_12 = 0b011,
+        // x on e_02 = 0b110, y on e_01 = 0b101. Round-trip behaviour is
+        // already covered by `to_euclidean_unit_weight_round_trips`.
+        let p = point(1.0, 0.0);
+        assert_eq!(p.0.get(0b011), 1.0, "weight blade is e_12 = 0b011");
+        assert_eq!(p.0.get(0b110), 1.0, "x blade is e_02 = 0b110");
+        assert_eq!(p.0.get(0b101), 0.0, "y blade is e_01 = 0b101");
+        let q = point(0.0, 1.0);
+        assert_eq!(q.0.get(0b011), 1.0);
+        assert_eq!(q.0.get(0b110), 0.0);
+        assert_eq!(q.0.get(0b101), 1.0);
     }
 
     /// Build the unit Euclidean bivector representing the world rotation
     /// plane (`e1 ∧ e2`, bitmask `0b011`). This is the *only* Euclidean
-    /// rotation plane in 2D PGA.
-    fn z_axis_bivector() -> Bivector {
+    /// rotation plane in 2D PGA, and the `e_12` blade IS the xy-plane
+    /// bivector.
+    fn xy_plane_bivector() -> Bivector {
         let mut mv: Multivector<Pga2> = Multivector::zero();
         mv.set(0b011, 1.0);
         Bivector(mv)
@@ -380,7 +403,7 @@ mod tests {
     fn rotor_is_unit_norm() {
         // exp(theta/2 * e_12) = cos(theta/2) + sin(theta/2) * e_12.
         // Squared norm: cos^2 + sin^2 = 1.
-        let r = rotor(z_axis_bivector(), 1.234);
+        let r = rotor(xy_plane_bivector(), 1.234);
         assert!((r.0.0.norm_sq() - 1.0).abs() < 1e-6);
     }
 
@@ -408,10 +431,10 @@ mod tests {
     }
 
     #[test]
-    fn interpolate_z_rotation_at_half_is_quarter_rotation() {
+    fn interpolate_xy_plane_rotation_at_half_is_quarter_rotation() {
         // Identity to rotor-by-pi-around-e_12, midpoint = rotor-by-pi/2.
         let m_a: Motor<Pga2> = Motor::identity();
-        let m_b: Motor<Pga2> = rotor(z_axis_bivector(), core::f32::consts::PI).0;
+        let m_b: Motor<Pga2> = rotor(xy_plane_bivector(), core::f32::consts::PI).0;
         let m = m_a.interpolate(&m_b, 0.5);
         let test_point = point(1.0, 0.0);
         let rotated = Point(m.apply(&test_point.0));
