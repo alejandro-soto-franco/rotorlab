@@ -21,15 +21,19 @@
 //! - [`shapes`]: named-field shape structs that store only the
 //!   non-zero blades for each geometric primitive. The dense
 //!   newtypes in [`factories`] remain the reference oracle; the
-//!   shape structs are an optimisation layer (Stage 7). The bridge
-//!   that round-trips between the two representations lands in
-//!   Stage 8.
+//!   shape structs are an optimisation layer (Stage 7).
+//! - [`bridge`]: round-trip conversions between the named-field
+//!   shape structs in [`shapes`] and the dense
+//!   [`crate::multivector::Multivector<Pga3>`] (Stage 8). Defines
+//!   [`BridgeError`] for out-of-shape extraction failures.
 
 pub mod algebra;
+pub mod bridge;
 pub mod factories;
 pub mod shapes;
 
 pub use algebra::{PGA3_CAYLEY, PGA3_CAYLEY_FLAT, Pga3};
+pub use bridge::BridgeError;
 pub use factories::{
     Bivector, Line, Plane, Point, line_through, plane_through, point, rotor, translator,
 };
