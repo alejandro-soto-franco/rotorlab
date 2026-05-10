@@ -27,13 +27,13 @@ impl Motor {
     /// Apply this motor to a multivector via the sandwich product `M * X * ~M`.
     pub fn apply(&self, x: &Multivector<Pga3>) -> Multivector<Pga3> {
         let m_rev = self.0.reverse();
-        let mx = self.0.geometric_pga3(x);
-        mx.geometric_pga3(&m_rev)
+        let mx = self.0.geometric(x);
+        mx.geometric(&m_rev)
     }
 
     /// Compose two motors: `(self ∘ other)(x) = self(other(x))`.
     pub fn compose(&self, other: &Motor) -> Motor {
-        Motor(self.0.geometric_pga3(&other.0))
+        Motor(self.0.geometric(&other.0))
     }
 
     /// Interpolate between this motor and `target` along the geodesic.
@@ -68,7 +68,7 @@ impl Motor {
         // Relative rotor R = target * reverse(self). For pure rotors this is
         // again a pure rotor, and log(R) lies in the Euclidean bivector subspace.
         let self_rev = self.0.reverse();
-        let r = target.0.geometric_pga3(&self_rev);
+        let r = target.0.geometric(&self_rev);
 
         let w = r.get(0);
         let b12 = r.get(0b0011);
@@ -113,7 +113,7 @@ impl Motor {
         exp_part.set(0b0110, b23 * scale);
 
         // Final SLERP'd motor: exp(alpha * log(R)) * self.
-        Motor(exp_part.geometric_pga3(&self.0))
+        Motor(exp_part.geometric(&self.0))
     }
 }
 

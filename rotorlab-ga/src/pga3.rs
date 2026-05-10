@@ -166,7 +166,7 @@ impl Point {
 pub fn line_through(p: Point, q: Point) -> Line {
     let pd = p.0.dual();
     let qd = q.0.dual();
-    let l_dual = pd.outer_pga3(&qd);
+    let l_dual = pd.outer(&qd);
     Line(l_dual.undual())
 }
 
@@ -180,7 +180,7 @@ pub fn plane_through(p: Point, q: Point, r: Point) -> Plane {
     let pd = p.0.dual();
     let qd = q.0.dual();
     let rd = r.0.dual();
-    let plane_dual = pd.outer_pga3(&qd).outer_pga3(&rd);
+    let plane_dual = pd.outer(&qd).outer(&rd);
     Plane(plane_dual.undual())
 }
 

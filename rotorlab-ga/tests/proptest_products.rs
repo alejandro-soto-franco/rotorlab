@@ -28,8 +28,8 @@ proptest! {
         b in arb_pga3_mv(),
         c in arb_pga3_mv(),
     ) {
-        let lhs = a.add(&b).geometric_pga3(&c);
-        let rhs = a.geometric_pga3(&c).add(&b.geometric_pga3(&c));
+        let lhs = a.add(&b).geometric(&c);
+        let rhs = a.geometric(&c).add(&b.geometric(&c));
         prop_assert!(approx_eq(&lhs, &rhs, 1e-3));
     }
 
@@ -47,8 +47,8 @@ proptest! {
         for (b, c) in [0b0001u64, 0b0010, 0b0100, 0b1000].iter().zip(v_coeffs.iter()) {
             v.set(*b as usize, *c);
         }
-        let uv = u.outer_pga3(&v);
-        let vu = v.outer_pga3(&u);
+        let uv = u.outer(&v);
+        let vu = v.outer(&u);
         let neg_vu = vu.scale(-1.0);
         prop_assert!(approx_eq(&uv, &neg_vu, 1e-3));
     }

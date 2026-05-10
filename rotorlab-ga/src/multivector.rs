@@ -1,7 +1,8 @@
 //! The universal `Multivector<A: Algebra>` type.
 
 use crate::algebra::Algebra;
-use crate::pga3::{PGA3_CAYLEY, Pga3};
+use crate::pga3::Pga3;
+use crate::scalar::Scalar;
 use core::marker::PhantomData;
 
 /// A multivector in algebra `A`.
@@ -139,100 +140,84 @@ impl<A: Algebra> Multivector<A> {
         }
         out
     }
-}
 
-impl Multivector<Pga3> {
-    /// Geometric product `self * rhs` in PGA3.
+    /// Geometric product `self * rhs`.
     ///
-    /// Reads from the compile-time `PGA3_CAYLEY` table: for each blade pair
-    /// `(i, j)` with non-zero coefficients, looks up `(sign, out_blade)` and
+    /// Reads from the algebra's compile-time flat Cayley table
+    /// ([`Algebra::CAYLEY`]): for each blade pair `(i, j)`, looks up
+    /// `(sign, out_blade)` at row-major index `i * N_BLADES + j` and
     /// accumulates `sign * a_i * b_j` into the output blade.
-    pub fn geometric_pga3(&self, rhs: &Self) -> Self {
+    pub fn geometric(&self, rhs: &Self) -> Self {
         let mut out = Self::zero();
-        let table = &PGA3_CAYLEY;
-        for (i, blade_i) in table.iter().enumerate() {
+        let n = A::N_BLADES;
+        for i in 0..n {
             let a = self.get(i);
-            if a == 0.0 {
-                continue;
-            }
-            for (j, &(sign, out_blade)) in blade_i.iter().enumerate() {
-                let b = rhs.get(j);
-                if b == 0.0 {
-                    continue;
-                }
+            for j in 0..n {
+                let (sign, out_blade) = A::CAYLEY[i * n + j];
                 if sign == 0 {
                     continue;
                 }
+                let b = rhs.get(j);
                 let cur = out.get(out_blade as usize);
-                let contrib = (sign as f32) * a * b;
+                let contrib = A::Scalar::from_sign(sign) * a * b;
                 out.set(out_blade as usize, cur + contrib);
             }
         }
         out
     }
 
-    /// Outer (wedge) product `self ∧ rhs` in PGA3.
+    /// Outer (wedge) product `self ∧ rhs`.
     ///
     /// Same as the geometric product but only keeps terms where the input
     /// blades share no common basis vectors (i.e. `i & j == 0`). This means
     /// the result blade's grade equals the sum of input grades.
-    pub fn outer_pga3(&self, rhs: &Self) -> Self {
+    pub fn outer(&self, rhs: &Self) -> Self {
         let mut out = Self::zero();
-        let table = &PGA3_CAYLEY;
-        for (i, blade_i) in table.iter().enumerate() {
+        let n = A::N_BLADES;
+        for i in 0..n {
             let a = self.get(i);
-            if a == 0.0 {
-                continue;
-            }
-            for (j, &(sign, out_blade)) in blade_i.iter().enumerate() {
+            for j in 0..n {
                 if (i & j) != 0 {
-                    continue; // shared basis vector → no wedge contribution
+                    continue; // shared basis vector means no wedge contribution
                 }
-                let b = rhs.get(j);
-                if b == 0.0 {
-                    continue;
-                }
+                let (sign, out_blade) = A::CAYLEY[i * n + j];
                 if sign == 0 {
                     continue;
                 }
+                let b = rhs.get(j);
                 let cur = out.get(out_blade as usize);
-                let contrib = (sign as f32) * a * b;
+                let contrib = A::Scalar::from_sign(sign) * a * b;
                 out.set(out_blade as usize, cur + contrib);
             }
         }
         out
     }
 
-    /// Inner product (left contraction) `self · rhs` in PGA3.
+    /// Inner product (left contraction) `self · rhs`.
     ///
     /// Defined as the grade-`|r - s|` part of the geometric product when
     /// `self` is grade `r` and `rhs` is grade `s`. Implemented blade-wise:
     /// for each pair `(i, j)`, keep the contribution iff
     /// `popcount(out_blade) == |popcount(i) - popcount(j)|`.
-    pub fn inner_pga3(&self, rhs: &Self) -> Self {
+    pub fn inner(&self, rhs: &Self) -> Self {
         let mut out = Self::zero();
-        let table = &PGA3_CAYLEY;
-        for (i, blade_i) in table.iter().enumerate() {
+        let n = A::N_BLADES;
+        for i in 0..n {
             let a = self.get(i);
-            if a == 0.0 {
-                continue;
-            }
-            let gi = i.count_ones() as i32;
-            for (j, &(sign, out_blade)) in blade_i.iter().enumerate() {
-                let b = rhs.get(j);
-                if b == 0.0 {
-                    continue;
-                }
-                let gj = j.count_ones() as i32;
-                let target_grade = (gi - gj).unsigned_abs();
+            let gi = (i as u64).count_ones() as i32;
+            for j in 0..n {
+                let (sign, out_blade) = A::CAYLEY[i * n + j];
                 if sign == 0 {
                     continue;
                 }
+                let gj = (j as u64).count_ones() as i32;
+                let target_grade = (gi - gj).unsigned_abs();
                 if out_blade.count_ones() != target_grade {
                     continue;
                 }
+                let b = rhs.get(j);
                 let cur = out.get(out_blade as usize);
-                let contrib = (sign as f32) * a * b;
+                let contrib = A::Scalar::from_sign(sign) * a * b;
                 out.set(out_blade as usize, cur + contrib);
             }
         }
@@ -242,37 +227,35 @@ impl Multivector<Pga3> {
     /// Right complement (Poincaré dual / Lengyel `J`-map).
     ///
     /// For each basis blade `b`, sends the coefficient at `b` to the
-    /// complementary blade `~b & 0b1111` with the unique sign making
-    /// `b ∧ J(b) = +I`.
+    /// complementary blade `~b & full` with the unique sign making
+    /// `b ∧ J(b) = +I`, where `full = (1 << DIM) - 1` is the bitmask of
+    /// the canonical pseudoscalar.
     ///
-    /// # Why this is *not* `b · I` in PGA
+    /// # Why this is *not* `b · I` in degenerate algebras
     ///
-    /// In PGA3 the metric is degenerate (`e0² = 0`), so `I² = 0` and the
-    /// metric-Hodge dual `b · I⁻¹` is undefined. The geometric-product
-    /// approach `b * I` collapses every blade containing `e0` to zero, which
-    /// would annihilate three of the four components of any point. The right
-    /// complement is purely combinatorial — sign comes from bit-permutation
-    /// parity alone — and is well-defined regardless of metric signature.
+    /// In a degenerate algebra (a basis vector squares to `0`, e.g. `e0`
+    /// in PGA3), `I² = 0` and the metric-Hodge dual `b · I⁻¹` is
+    /// undefined. The geometric-product approach `b * I` collapses every
+    /// blade containing the null vector to zero, which would annihilate
+    /// most components of an embedded point. The right complement is
+    /// purely combinatorial: sign comes from bit-permutation parity
+    /// alone, independent of metric signature.
     ///
     /// # Properties
     ///
-    /// * Maps grade `k` to grade `4 - k`.
-    /// * `dual(dual(x))` equals `(-1)^(k(4-k)) · x` on grade-`k` components.
-    ///   Specifically `+x` on grades 0/2/4 and `-x` on grades 1/3, so it is
-    ///   *not* a strict involution. Use [`undual`](Self::undual) for the
-    ///   inverse.
+    /// * Maps grade `k` to grade `DIM - k`.
+    /// * `dual(dual(x))` equals `(-1)^(k(DIM-k)) · x` on grade-`k`
+    ///   components, so it is *not* a strict involution. Use
+    ///   [`undual`](Self::undual) for the inverse.
     pub fn dual(&self) -> Self {
         let mut out = Self::zero();
-        let full = (1u64 << Pga3::DIM) - 1; // 0b1111 for PGA3
-        for blade in 0..Pga3::N_BLADES {
+        let full = (1u64 << A::DIM) - 1;
+        for blade in 0..A::N_BLADES {
             let v = self.get(blade);
-            if v == 0.0 {
-                continue;
-            }
             let comp = ((!(blade as u64)) & full) as usize;
-            let s = crate::blade::right_complement_sign(blade as u64, Pga3::DIM) as f32;
+            let s = crate::blade::right_complement_sign(blade as u64, A::DIM);
             let cur = out.get(comp);
-            out.set(comp, cur + s * v);
+            out.set(comp, cur + A::Scalar::from_sign(s) * v);
         }
         out
     }
@@ -281,29 +264,55 @@ impl Multivector<Pga3> {
     ///
     /// Defined by `L(b) ∧ b = +I`. Satisfies `dual().undual() == self` and
     /// `undual().dual() == self` exactly. On grade `k` it equals
-    /// `(-1)^(k(4-k)) · dual()`, so it agrees with `dual` on grades 0/2/4
-    /// and flips sign on grades 1/3.
+    /// `(-1)^(k(DIM-k)) · dual()`, so on a 4-dimensional algebra it agrees
+    /// with `dual` on grades 0/2/4 and flips sign on grades 1/3.
     pub fn undual(&self) -> Self {
         let mut out = Self::zero();
-        let full = (1u64 << Pga3::DIM) - 1;
-        for blade in 0..Pga3::N_BLADES {
+        let full = (1u64 << A::DIM) - 1;
+        for blade in 0..A::N_BLADES {
             let v = self.get(blade);
-            if v == 0.0 {
-                continue;
-            }
             let comp = ((!(blade as u64)) & full) as usize;
-            let s = crate::blade::left_complement_sign(blade as u64, Pga3::DIM) as f32;
+            let s = crate::blade::left_complement_sign(blade as u64, A::DIM);
             let cur = out.get(comp);
-            out.set(comp, cur + s * v);
+            out.set(comp, cur + A::Scalar::from_sign(s) * v);
         }
         out
     }
 
     /// Squared norm: the grade-0 part of `self * ~self`.
-    pub fn norm_sq(&self) -> f32 {
+    pub fn norm_sq(&self) -> A::Scalar {
         let r = self.reverse();
-        let p = self.geometric_pga3(&r);
+        let p = self.geometric(&r);
         p.get(0)
+    }
+}
+
+impl Multivector<Pga3> {
+    /// Geometric product on PGA3.
+    ///
+    /// Deprecated thin wrapper preserved for source compatibility; calls
+    /// the generic [`Multivector::geometric`].
+    #[deprecated(note = "use Multivector::geometric instead; will be removed in 0.2.0")]
+    pub fn geometric_pga3(&self, rhs: &Self) -> Self {
+        self.geometric(rhs)
+    }
+
+    /// Outer product on PGA3.
+    ///
+    /// Deprecated thin wrapper preserved for source compatibility; calls
+    /// the generic [`Multivector::outer`].
+    #[deprecated(note = "use Multivector::outer instead; will be removed in 0.2.0")]
+    pub fn outer_pga3(&self, rhs: &Self) -> Self {
+        self.outer(rhs)
+    }
+
+    /// Inner product on PGA3.
+    ///
+    /// Deprecated thin wrapper preserved for source compatibility; calls
+    /// the generic [`Multivector::inner`].
+    #[deprecated(note = "use Multivector::inner instead; will be removed in 0.2.0")]
+    pub fn inner_pga3(&self, rhs: &Self) -> Self {
+        self.inner(rhs)
     }
 }
 
@@ -345,7 +354,7 @@ mod tests {
         // e1 * e1 = +1 (scalar)
         let mut e1: Multivector<Pga3> = Multivector::zero();
         e1.set(0b0001, 1.0);
-        let result = e1.geometric_pga3(&e1);
+        let result = e1.geometric(&e1);
         assert_eq!(result.get(0), 1.0);
         for k in 1..16 {
             assert_eq!(result.get(k), 0.0, "blade {k} should be zero");
@@ -359,8 +368,28 @@ mod tests {
         e1.set(0b0001, 1.0);
         let mut e2: Multivector<Pga3> = Multivector::zero();
         e2.set(0b0010, 1.0);
-        let result = e1.geometric_pga3(&e2);
+        let result = e1.geometric(&e2);
         assert_eq!(result.get(0b0011), 1.0);
+    }
+
+    #[test]
+    fn geometric_works_via_generic_path() {
+        // Acceptance test for Stage 2: calling the fully generic
+        // `Multivector::<Pga3>::geometric` (no Pga3-specific dispatch) must
+        // produce the same result as the existing geometric_product_e1_times_e2
+        // case. This guards against accidentally re-introducing a
+        // Pga3-specialised body that would defeat the trait abstraction.
+        let mut e1: Multivector<Pga3> = Multivector::zero();
+        e1.set(0b0001, 1.0);
+        let mut e2: Multivector<Pga3> = Multivector::zero();
+        e2.set(0b0010, 1.0);
+        let result = <Multivector<Pga3>>::geometric(&e1, &e2);
+        assert_eq!(result.get(0b0011), 1.0);
+        for k in 0..16 {
+            if k != 0b0011 {
+                assert_eq!(result.get(k), 0.0, "blade {k} should be zero");
+            }
+        }
     }
 
     #[test]
@@ -368,7 +397,7 @@ mod tests {
         // e0 is null in PGA3
         let mut e0: Multivector<Pga3> = Multivector::zero();
         e0.set(0b1000, 1.0);
-        let result = e0.geometric_pga3(&e0);
+        let result = e0.geometric(&e0);
         for k in 0..16 {
             assert_eq!(result.get(k), 0.0, "blade {k} should be zero (e0 is null)");
         }
@@ -381,7 +410,7 @@ mod tests {
         e1.set(0b0001, 1.0);
         let mut e2: Multivector<Pga3> = Multivector::zero();
         e2.set(0b0010, 1.0);
-        let result = e1.outer_pga3(&e2);
+        let result = e1.outer(&e2);
         assert_eq!(result.get(0b0011), 1.0);
         // No grade-0 contribution
         assert_eq!(result.get(0), 0.0);
@@ -392,7 +421,7 @@ mod tests {
         // a ∧ a = 0 always
         let mut e1: Multivector<Pga3> = Multivector::zero();
         e1.set(0b0001, 1.0);
-        let result = e1.outer_pga3(&e1);
+        let result = e1.outer(&e1);
         for k in 0..16 {
             assert_eq!(result.get(k), 0.0);
         }
@@ -400,10 +429,10 @@ mod tests {
 
     #[test]
     fn inner_product_e1_dot_e1() {
-        // e1 · e1 = 1 (grade 1 · grade 1 → grade 0)
+        // e1 · e1 = 1 (grade 1 · grade 1 maps to grade 0)
         let mut e1: Multivector<Pga3> = Multivector::zero();
         e1.set(0b0001, 1.0);
-        let result = e1.inner_pga3(&e1);
+        let result = e1.inner(&e1);
         assert_eq!(result.get(0), 1.0);
     }
 
@@ -414,7 +443,7 @@ mod tests {
         e1.set(0b0001, 1.0);
         let mut e2: Multivector<Pga3> = Multivector::zero();
         e2.set(0b0010, 1.0);
-        let result = e1.inner_pga3(&e2);
+        let result = e1.inner(&e2);
         for k in 0..16 {
             assert_eq!(result.get(k), 0.0);
         }
@@ -440,7 +469,7 @@ mod tests {
 
     #[test]
     fn grade_projection_isolates_grade() {
-        // mv = 1 + e1 + e12; project grade 1 → only e1 remains
+        // mv = 1 + e1 + e12; project grade 1 leaves only e1.
         let mut mv: Multivector<Pga3> = Multivector::zero();
         mv.set(0, 1.0);
         mv.set(0b0001, 2.0);

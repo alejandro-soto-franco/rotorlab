@@ -301,7 +301,7 @@ fn plane_through_offset_xy_plane_has_e0_offset() {
 fn point_on_plane(point: &pga3::Point, plane: &pga3::Plane) -> bool {
     // Wedge of point (grade 3) and plane (grade 1) is grade 4 (a scalar
     // multiple of I). Vanishing iff the point lies on the plane.
-    let w = point.0.outer_pga3(&plane.0);
+    let w = point.0.outer(&plane.0);
     w.get(0b1111).abs() < 1e-4
 }
 

@@ -42,6 +42,23 @@ pub trait Scalar:
     fn sin(self) -> Self;
     /// Returns `self.cos()`.
     fn cos(self) -> Self;
+
+    /// Convert a Cayley-table sign (`-1`, `0`, `+1`) into the scalar field.
+    ///
+    /// Used by generic geometric / outer / inner product loops to multiply
+    /// the integer sign drawn from [`crate::algebra::Algebra::CAYLEY`] by
+    /// scalar coefficients without resorting to a per-`Scalar` numeric cast.
+    ///
+    /// Any input outside `{-1, 0, 1}` is treated as `0`; downstream call
+    /// sites only ever feed values produced by the Cayley-table constructor,
+    /// which itself emits exactly those three values.
+    fn from_sign(s: i8) -> Self {
+        match s {
+            1 => Self::ONE,
+            -1 => Self::NEG_ONE,
+            _ => Self::ZERO,
+        }
+    }
 }
 
 mod private {
