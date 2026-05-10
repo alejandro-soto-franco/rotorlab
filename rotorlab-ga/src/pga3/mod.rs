@@ -26,11 +26,18 @@
 //!   shape structs in [`shapes`] and the dense
 //!   [`crate::multivector::Multivector<Pga3>`] (Stage 8). Defines
 //!   [`BridgeError`] for out-of-shape extraction failures.
+//! - [`specialised`]: shape-to-shape methods on
+//!   [`shapes::Motor`] for the hot-path operations the engine uses
+//!   every frame (Stage 9). Each method takes named-field shape
+//!   inputs and returns named-field shape outputs without forcing
+//!   callers to round-trip through [`crate::multivector::Multivector<Pga3>`]
+//!   manually.
 
 pub mod algebra;
 pub mod bridge;
 pub mod factories;
 pub mod shapes;
+pub mod specialised;
 
 pub use algebra::{PGA3_CAYLEY, PGA3_CAYLEY_FLAT, Pga3};
 pub use bridge::BridgeError;
