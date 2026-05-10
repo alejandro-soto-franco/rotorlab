@@ -23,4 +23,21 @@ pub trait Algebra: Copy + Default + 'static {
     /// Metric vector: a slice of `DIM` entries, each `+1`, `-1`, or `0`.
     /// Index `i` gives the square of basis vector `e_i`.
     const METRIC: &'static [i8];
+
+    /// Flat row-major Cayley table, length `N_BLADES * N_BLADES`.
+    ///
+    /// Entry `(i, j)` of the geometric product table is at index
+    /// `i * N_BLADES + j` and decomposes as `(sign, result_blade)`, where
+    /// `sign` is `+1`, `-1`, or `0` and `result_blade` is the bitmask of
+    /// the basis blade produced by `e_i * e_j`. The flat layout lets
+    /// downstream code iterate the table generically without specialising
+    /// on a fixed nested-array shape.
+    const CAYLEY: &'static [(i8, u64)];
+
+    /// Bitmask of basis vectors that square to `0`.
+    ///
+    /// Bit `i` is set iff `METRIC[i] == 0`. Lets downstream code recognise
+    /// blades that contain a null factor in `O(1)` via a single mask test.
+    /// For purely Euclidean algebras this is `0`.
+    const NULL_MASK: u64;
 }

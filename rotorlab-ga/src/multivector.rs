@@ -1,7 +1,7 @@
 //! The universal `Multivector<A: Algebra>` type.
 
 use crate::algebra::Algebra;
-use crate::pga3::Pga3;
+use crate::pga3::{PGA3_CAYLEY, Pga3};
 use core::marker::PhantomData;
 
 /// A multivector in algebra `A`.
@@ -149,7 +149,7 @@ impl Multivector<Pga3> {
     /// accumulates `sign * a_i * b_j` into the output blade.
     pub fn geometric_pga3(&self, rhs: &Self) -> Self {
         let mut out = Self::zero();
-        let table = Pga3::cayley_table();
+        let table = &PGA3_CAYLEY;
         for (i, blade_i) in table.iter().enumerate() {
             let a = self.get(i);
             if a == 0.0 {
@@ -178,7 +178,7 @@ impl Multivector<Pga3> {
     /// the result blade's grade equals the sum of input grades.
     pub fn outer_pga3(&self, rhs: &Self) -> Self {
         let mut out = Self::zero();
-        let table = Pga3::cayley_table();
+        let table = &PGA3_CAYLEY;
         for (i, blade_i) in table.iter().enumerate() {
             let a = self.get(i);
             if a == 0.0 {
@@ -211,7 +211,7 @@ impl Multivector<Pga3> {
     /// `popcount(out_blade) == |popcount(i) - popcount(j)|`.
     pub fn inner_pga3(&self, rhs: &Self) -> Self {
         let mut out = Self::zero();
-        let table = Pga3::cayley_table();
+        let table = &PGA3_CAYLEY;
         for (i, blade_i) in table.iter().enumerate() {
             let a = self.get(i);
             if a == 0.0 {

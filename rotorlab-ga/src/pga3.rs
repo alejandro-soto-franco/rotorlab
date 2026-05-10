@@ -21,6 +21,10 @@ use crate::algebra::Algebra;
 /// assert_eq!(Pga3::DIM, 4);
 /// assert_eq!(Pga3::N_BLADES, 16);
 /// assert_eq!(Pga3::METRIC, &[1, 1, 1, 0]);
+/// // Bit 3 (e0) is the only null basis vector.
+/// assert_eq!(Pga3::NULL_MASK, 0b1000);
+/// // Flat Cayley table is row-major over 16 x 16 blades.
+/// assert_eq!(Pga3::CAYLEY.len(), 16 * 16);
 /// ```
 #[derive(Copy, Clone, Default, Debug)]
 pub struct Pga3;
@@ -32,6 +36,9 @@ impl Algebra for Pga3 {
     type Storage = [f32; 16];
     type Scalar = f32;
     const METRIC: &'static [i8] = &[1, 1, 1, 0];
+    const CAYLEY: &'static [(i8, u64)] = &PGA3_CAYLEY_FLAT;
+    /// Bit 3 corresponds to `e0`, the sole null basis vector of PGA3.
+    const NULL_MASK: u64 = 0b1000;
 }
 
 use crate::blade::{blade_product_blade, blade_product_sign};
@@ -41,6 +48,14 @@ use crate::blade::{blade_product_blade, blade_product_sign};
 ///
 /// Materialized at compile time from the const-fn `blade_product_sign`.
 pub const PGA3_CAYLEY: [[(i8, u64); 16]; 16] = pga3_cayley_table();
+
+/// Flat row-major version of [`PGA3_CAYLEY`], length `16 * 16 = 256`.
+///
+/// Entry `(i, j)` lives at index `i * 16 + j`. Built at compile time by
+/// copying [`PGA3_CAYLEY`] entry by entry, so the two are guaranteed to
+/// agree element for element. This is the storage backing
+/// [`Algebra::CAYLEY`] for [`Pga3`].
+pub const PGA3_CAYLEY_FLAT: [(i8, u64); 256] = pga3_cayley_flat();
 
 const fn pga3_cayley_table() -> [[(i8, u64); 16]; 16] {
     let mut table = [[(0i8, 0u64); 16]; 16];
@@ -58,8 +73,23 @@ const fn pga3_cayley_table() -> [[(i8, u64); 16]; 16] {
     table
 }
 
+const fn pga3_cayley_flat() -> [(i8, u64); 256] {
+    let mut flat = [(0i8, 0u64); 256];
+    let mut i = 0usize;
+    while i < 16 {
+        let mut j = 0usize;
+        while j < 16 {
+            flat[i * 16 + j] = PGA3_CAYLEY[i][j];
+            j += 1;
+        }
+        i += 1;
+    }
+    flat
+}
+
 impl Pga3 {
     /// Reference to the compile-time-evaluated Cayley table.
+    #[deprecated(note = "use Pga3::CAYLEY (flat row-major) instead; will be removed in 0.2.0")]
     pub const fn cayley_table() -> &'static [[(i8, u64); 16]; 16] {
         &PGA3_CAYLEY
     }
@@ -196,6 +226,40 @@ pub fn translator(direction: Bivector, distance: f32) -> Translator {
 mod tests {
     use super::*;
     use crate::multivector::Multivector;
+
+    #[test]
+    #[allow(deprecated)]
+    fn cayley_flat_matches_nested_table() {
+        // Stage-1 acceptance: the new flat row-major slice must agree with the
+        // legacy nested-array accessor on every one of the 256 entries.
+        let nested = Pga3::cayley_table();
+        assert_eq!(Pga3::CAYLEY.len(), 256);
+        for (i, row) in nested.iter().enumerate() {
+            for (j, &from_nested) in row.iter().enumerate() {
+                let flat = Pga3::CAYLEY[i * 16 + j];
+                assert_eq!(
+                    flat, from_nested,
+                    "mismatch at (i={i}, j={j}): flat={flat:?} nested={from_nested:?}",
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn null_mask_is_e0_only() {
+        // e0 is bit 3 in the PGA3 bitmask encoding and is the only null
+        // basis vector (METRIC[3] == 0). Bits 0, 1, 2 are e1, e2, e3 (all +1).
+        assert_eq!(Pga3::NULL_MASK, 0b1000);
+        for i in 0..4usize {
+            let bit = 1u64 << i;
+            let in_null = (Pga3::NULL_MASK & bit) != 0;
+            let metric_zero = Pga3::METRIC[i] == 0;
+            assert_eq!(
+                in_null, metric_zero,
+                "NULL_MASK / METRIC mismatch on basis vector e_{i}",
+            );
+        }
+    }
 
     #[test]
     fn to_euclidean_unit_weight_round_trips() {
