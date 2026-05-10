@@ -12,6 +12,7 @@ pub mod motor;
 pub mod multivector;
 pub mod pga2;
 pub mod pga3;
+pub mod pga4;
 pub mod scalar;
 
 pub use algebra::Algebra;
