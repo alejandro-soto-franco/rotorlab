@@ -104,7 +104,7 @@ impl Line {
     /// expected by [`LinePipeline`](crate::render::pipelines::LinePipeline).
     ///
     /// Each endpoint is divided by its homogeneous weight via
-    /// [`PgaPoint::to_euclidean`] before being packed with `w = 1.0`
+    /// [`shapes::Point::to_euclidean`] before being packed with `w = 1.0`
     /// (the homogeneous-finite-point marker).
     pub fn to_instance(&self) -> LineInstance {
         let ae = self.a.to_euclidean();
