@@ -486,7 +486,6 @@ dependencies = [
  "ash",
  "bytemuck",
  "image",
- "log",
  "rotorlab-ga",
  "shaderc",
  "tempfile",

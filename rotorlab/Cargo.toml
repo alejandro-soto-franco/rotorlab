@@ -17,7 +17,6 @@ build       = "build.rs"
 ash          = { workspace = true }
 bytemuck     = { workspace = true }
 image        = { workspace = true }
-log          = { workspace = true }
 thiserror    = { workspace = true }
 rotorlab-ga  = { path = "../rotorlab-ga", version = "0.0.4" }
 
